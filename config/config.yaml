@@ -1,0 +1,197 @@
+# ASLK 系统配置文件
+# 版本: 1.0
+# 日期: 2025-11-18
+
+# ============================================================================
+# Loop 配置
+# ============================================================================
+loop:
+  max_iterations: 50                    # 最大迭代次数
+  candidates_per_iteration: 50          # 每轮候选材料数量
+  target_materials: 20                  # 目标发现材料数量
+  retrain_interval: 2                   # 模型重训练间隔（轮数）
+  min_success_rate: 0.05                # 最低成功率阈值（低于此值终止）
+  convergence_patience: 5               # 连续无发现的容忍轮数
+
+# ============================================================================
+# 贝叶斯优化配置
+# ============================================================================
+bayesian_optimization:
+  # Expected Improvement (EI) 采集函数参数
+  acquisition:
+    function: EI                          # 采集函数类型：EI, UCB, PI
+    xi: 0.01                              # EI探索参数（用于数值稳定性，越大越倾向探索）
+  
+  # 蒙特卡洛采样参数
+  sampling:
+    method: mcmc                         # sampling method: random, mcmc
+    hard_constraints:
+      schema:
+        type: A-B-Ch
+        groups:
+          A: [Ag, Cu, In, Sn, Pb]
+          B: [As, Sb, Ge, Bi, Ti, V]
+          Ch: [S, Se, Te]
+      stoichiometry:
+        A: {min: 2, max: 10}
+        B: {min: 1, max: 10}
+        Ch: {min: 1, max: 10}
+    mcmc:
+      w_ei: 1.0                           # EI weight (exploration/exploitation mix)
+      w_k: 1.0                            # low thermal conductivity weight
+      w_sigma: 0.5                        # uncertainty (exploration) weight
+      temperature: 1.0                    # MCMC temperature
+      burn_in: 200                        # burn-in steps
+      thin: 5                             # thinning interval
+    n_samples: 100                        # 每轮采样数量
+    max_atoms: 20                         # 最大原子数
+    allowed_elements:                     # 允许的元素（将从generator继承）
+      - Ti
+      - V
+      - Cu
+      - Ag
+      - In
+      - Ge
+      - Sn
+      - Pb
+      - As
+      - Sb
+      - Bi
+      - S
+      - Se
+      - Te
+  
+  # GPR模型配置
+  model:
+    initial_model: models/GPR_0/gpr_thermal_conductivity.joblib  # Round 1初始模型
+    retrain_from_round: 2                 # 从第几轮开始重训练模型
+
+
+# ============================================================================
+# 模型配置
+# ============================================================================
+model:
+  device: cuda                          # 设备：cuda 或 cpu
+  batch_size: 32                        # 批处理大小
+  model_dir: data/models                # 模型保存目录
+  
+  # RandomForest 参数
+  rf:
+    n_estimators: 300
+    max_depth: 20
+    min_samples_split: 5
+    class_weight: balanced
+    random_state: 42
+  
+  # XGBoost 参数
+  xgb:
+    n_estimators: 300
+    max_depth: 8
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    random_state: 42
+  
+  # 集成权重
+  ensemble:
+    rf_weight: 0.4
+    xgb_weight: 0.6
+
+# ============================================================================
+# 知识库配置
+# ============================================================================
+knowledge_base:
+  db_path: data/knowledge_base/aslk.db  # SQLite 数据库路径
+  initial_data: data/filtered_composition.csv  # 初始数据路径
+
+# ============================================================================
+# 组分生成器配置
+# ============================================================================
+generator:
+  allowed_elements:                     # 允许的元素列表
+    - Ag
+    - Bi
+    - Cu
+    - Ge
+    - Pb
+    - S
+    - Sb
+    - Se
+    - Sn
+    - Te
+    - Ga
+    - In
+    - As
+    - Cd
+  
+  # Exploitation 策略配置
+  exploitation:
+    initial_ratio: 0.6                  # 初始利用比例
+    mid_ratio: 0.8                      # 中期利用比例
+    final_ratio: 0.9                    # 后期利用比例
+    template_mutation_prob: 0.7         # 模板变异概率
+    similarity_threshold: 0.7           # 相似度阈值
+  
+  # Exploration 策略配置
+  exploration:
+    genetic_algorithm:
+      population_size: 100
+      generations: 20
+      mutation_rate: 0.2
+      crossover_rate: 0.8
+    random_sampling:
+      min_elements: 2
+      max_elements: 5
+
+# ============================================================================
+# 外部工具配置
+# ============================================================================
+tools:
+  # CrystaLLM 配置
+  crystallm:
+    model_path: src/tools/crystallm/pre-trained-model/crystallm_v1_small
+    timeout: 300                        # 超时时间（秒）
+    num_samples: 3                      # 每个组分生成的结构数量
+    top_k: 10
+    max_new_tokens: 2000
+  
+  # ai4kappa 配置
+  ai4kappa:
+    temperature: 300                    # 温度（K）
+    timeout: 300
+    k_threshold: 1.0                    # 热导率阈值（W/(m·K)）
+  
+  # Mattersim 配置
+  mattersim:
+    timeout: 600
+    phonon_supercell: [2, 2, 2]         # 声子计算超胞
+    displacement: 0.01                  # 位移量（Å）
+    imaginary_freq_threshold: -0.1      # 虚频阈值（THz）
+
+# ============================================================================
+# 性能阈值配置
+# ============================================================================
+thresholds:
+  thermal_conductivity: 1.0             # 热导率阈值（W/(m·K)）
+  stability: stable                     # 稳定性要求
+
+# ============================================================================
+# 日志配置
+# ============================================================================
+logging:
+  level: INFO                           # 日志级别：DEBUG, INFO, WARNING, ERROR
+  format: "[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+  file: results/round_1/logs/aslk.log   # 日志文件路径
+  max_bytes: 10485760                   # 日志文件最大大小（10MB）
+  backup_count: 5                       # 日志文件备份数量
+
+# ============================================================================
+# 输出配置
+# ============================================================================
+output:
+  results_dir: results/round_1/selected_results  # 结果保存目录
+  save_structures: true                 # 是否保存晶体结构
+  save_reports: true                    # 是否保存报告
+  report_format: markdown               # 报告格式：markdown, json, html
+

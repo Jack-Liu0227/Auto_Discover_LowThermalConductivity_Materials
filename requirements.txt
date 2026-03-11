@@ -1,0 +1,134 @@
+# ============================================================================
+# ASLK (Active Search for Low Kappa) - 低热导率材料发现系统
+# Requirements File
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Core Dependencies
+# ----------------------------------------------------------------------------
+
+# Google AI and ADK
+google-adk>=1.15.0
+google-generativeai>=0.3.0
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+
+# LLM Unified Client
+litellm>=1.30.0
+agno>=1.8.0
+
+# Data Processing and Analysis
+pandas>=2.1.0
+numpy>=1.25.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Chemistry and Materials Science
+ase>=3.22.0
+pymatgen>=2023.10.0
+
+# Machine Learning
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+joblib>=1.3.0
+
+# PyTorch (CUDA 12.4 support)
+# Note: Install from PyTorch official repository
+# pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
+torch>=2.6.0
+torchvision>=0.21.0
+torchaudio>=2.6.0
+
+# Database and Storage
+sqlalchemy>=2.0.0
+sqlite-utils>=3.35.0
+
+# Configuration and Settings
+python-dotenv>=1.0.0
+pydantic>=2.4.0
+pydantic-settings>=2.0.0
+omegaconf>=2.3.0
+
+# Logging and Monitoring
+structlog>=23.1.0
+rich>=13.6.0
+tqdm>=4.66.0
+
+# Mattersim - Force field calculator for phonon spectrum
+mattersim>=1.2.0
+
+# Phonopy - Phonon calculation (dependency of mattersim)
+phonopy>=2.20.0
+spglib>=2.0.0
+
+# ----------------------------------------------------------------------------
+# Optional Dependencies
+# ----------------------------------------------------------------------------
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# Development Tools
+black>=23.9.0
+isort>=5.12.0
+flake8>=6.1.0
+mypy>=1.6.0
+pre-commit>=3.4.0
+
+# Documentation
+mkdocs>=1.5.0
+mkdocs-material>=9.4.0
+mkdocstrings[python]>=0.23.0
+
+# Jupyter for Analysis
+jupyter>=1.0.0
+ipykernel>=6.25.0
+notebook>=7.0.0
+
+# Extended Analysis
+plotly>=5.17.0
+scikit-optimize>=0.9.0
+shap>=0.43.0
+
+# ----------------------------------------------------------------------------
+# Additional Scientific Computing Libraries
+# ----------------------------------------------------------------------------
+
+# Scientific Computing
+scipy>=1.11.0
+
+# Visualization
+plotly>=5.17.0
+
+# ----------------------------------------------------------------------------
+# Notes
+# ----------------------------------------------------------------------------
+# 
+# 1. PyTorch Installation:
+#    For CUDA 12.4 support, install PyTorch from the official repository:
+#    pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124 \
+#        --index-url https://download.pytorch.org/whl/cu124
+#
+# 2. CrystaLLM:
+#    CrystaLLM is included as a local package in src/tools/crystallm/
+#    No separate installation required.
+#
+# 3. Kappa-lib:
+#    Kappa-lib is included as a local package in src/tools/kappa_lib/
+#    No separate installation required.
+#
+# 4. Mattersim:
+#    Install in a separate conda environment if needed:
+#    conda create -n gnome python=3.10
+#    conda activate gnome
+#    pip install mattersim
+#
+# 5. Installation Order:
+#    a. Install PyTorch first (with CUDA support if available)
+#    b. Install other dependencies: pip install -r requirements.txt
+#    c. For development: pip install -r requirements.txt -r requirements-dev.txt
+#
+# ============================================================================

@@ -1,0 +1,92 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# Logs
+*.log
+logs/
+
+# Generated structures (keep README.md only)
+# Generated structures
+src/tools/crystallm/generated_structures/
+!src/tools/crystallm/generated_structures/README.md
+
+# Data files
+./results
+# *.csv
+*/.cif
+results_llm.zip
+bo/
+!config/*.json
+!**/metadata.json
+bo_new/
+# Model files
+*.joblib
+*.pkl
+*.h5
+*.pt
+*.pth
+
+# Temporary files
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+bo_first_iteration/
+llm/*
+llm_*/
+llm_first_version/
+bo_new_111/
+llm_beforedb/
+llm/
+bo_new_222/
+bo_new_三元/
+doc/理论原理文档_Zh.md
+analysis_scripts/
+scripts/
+data/original_data.csv
+data/element_statistics.py
+data/element_statistics.json
+data/element_statistics.csv
+data/check_elements.py
+.pytest_cache/
+llm_old/
+.env

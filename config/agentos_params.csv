@@ -1,0 +1,15 @@
+﻿key,value,enabled,notes
+websearch_enabled,true,1,Enable/disable web search
+websearch_top_n,10,1,How many top candidates to enrich
+top_k_bayes,20,1,Bayes top-k candidates
+top_k_screen,10,1,AI screening top-k
+samples,100,1,Bayesian sample size
+n_structures,5,1,Structures generated per material
+relax_timeout_sec,120,1,Relaxation timeout per task
+skip_doc_update,false,1,Skip theory update step
+agentos_default_iterations,20,1,Default iterations for AgentOS
+agentos_ws_ping_interval,none,1,Auto-added by runtime memory
+agentos_ws_ping_timeout,none,1,Auto-added by runtime memory
+phonon_imag_tol,-0.1,1,Auto-added by runtime memory
+db_candidate_workers,8,1,Auto-added by runtime memory
+seed,42,0,Auto-added by runtime memory
