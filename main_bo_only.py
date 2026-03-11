@@ -55,7 +55,7 @@ import json
 
 # ============== 路径配置 ==============
 # 配置选项 1: BO 模式（仅贝叶斯优化，无 AI 评估）- 使用统一父目录
-RUN_MODE = "bo_new"  # 运行模式：bo 或 llm
+RUN_MODE = "bo"  # 运行模式：bo 或 llm
 RESULTS_ROOT = f"{RUN_MODE}/results"
 MODELS_ROOT = f"{RUN_MODE}/models/GPR"
 DATA_ROOT = f"{RUN_MODE}/data"

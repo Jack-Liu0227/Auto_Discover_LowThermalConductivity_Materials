@@ -1,60 +1,25 @@
-# ASLK
+# ADLM
 
-低热导率材料自动搜索工作流。
+Auto_Discover_LowThermalConductivity_Materials (ADLM) 是一个面向低热导率材料发现的自动化工作流。它将 Bayesian Optimization、基于 LLM 的筛选、结构生成、热导率预测、声子或稳定性验证，以及迭代式数据集更新整合到同一套流程中。
 
-[Read in English / 英文文档](./README.md)
+[Read the English version](./README.md)
 
-ASLK 是一个面向低热导率材料发现的自动化工作流系统，结合了 Bayesian Optimization、LLM 筛选、结构生成、热导率预测、声子或稳定性验证，以及迭代式数据更新。
+## 项目提供的能力
 
-当前仓库主要提供两个入口：
+当前仓库有两个主要入口：
 
-- `main.py`：LLM + Agno 工作流
-- `main_bo_only.py`：纯 Bayesian Optimization 工作流
+- `main.py`：基于 Agno 的 LLM 增强工作流
+- `main_bo_only.py`：不包含 LLM 筛选与理论文档更新的纯 BO 工作流
 
-## 项目概览
+两种模式共享同一类迭代逻辑：
 
-典型迭代流程包括：
-
-1. 基于已有数据训练或更新代理模型。
-2. 使用 Bayesian Optimization 生成新候选材料。
-3. 在 `main.py` 中使用 LLM 做进一步筛选。
-4. 生成结构并执行下游计算。
+1. 基于已有数据训练或刷新代理模型。
+2. 使用 Bayesian Optimization 采样候选组分。
+3. 在 LLM 模式下对候选材料进行额外筛选。
+4. 生成结构并执行弛豫、声子和热导率相关计算。
 5. 提取成功材料或稳定材料。
-6. 更新下一轮数据集。
-7. 在 LLM 模式下持续更新理论文档。
-
-## 运行模式
-
-### LLM 工作流
-
-入口：
-
-```bash
-python main.py
-```
-
-特点：
-
-- 使用 Agno workflow 编排流程
-- 支持 `workflow` 和 `agentos`
-- 默认模型提供商为 DeepSeek
-- 支持通过 `.env` 配置回退提供商
-- 维护 `llm/data`、`llm/results`、`llm/models`、`llm/doc`
-- 支持通过 `config/agentos_params.csv` 覆盖参数
-
-### BO-only 工作流
-
-入口：
-
-```bash
-python main_bo_only.py
-```
-
-特点：
-
-- 只执行 BO、结构计算、结果提取和数据更新
-- 不依赖 LLM 评估和理论文档更新
-- 维护 `bo_new/data`、`bo_new/results`、`bo_new/models`
+6. 更新下一轮迭代数据集。
+7. 在 LLM 模式下按轮次更新理论文档版本。
 
 ## 仓库结构
 
@@ -65,50 +30,53 @@ aslk/
 |- README.md
 |- README.zh-CN.md
 |- .env.example
-|- requirements.txt
 |- pyproject.toml
+|- requirements.txt
 |- config/
 |  |- config.yaml
 |  |- llm_config.yaml
 |  |- agentos_params.csv
 |- src/
 |  |- agents/
-|  |- workflow/
 |  |- database/
+|  |- generators/
+|  |- models/
 |  |- tools/
 |  |- utils/
+|  |- workflow/
 |- scripts/
-|  |- summarize_results.py
-|  |- check_screening_tools.py
 |- analysis_scripts/
 |- data/
 |- doc/
 |- llm/
-|- bo_new/
+|- bo_first_iteration/
 ```
+
+> [!NOTE]
+> `main_bo_only.py` 当前已经切换为写入 `bo/...`。仓库中仍然保留了一些历史脚本、旧实验目录或旧命名，例如 `bo_new/...`。本文档以下内容以当前入口脚本的实际行为为准。
 
 ## 环境要求
 
-推荐环境：
-
 - Python `3.10+`
-- 使用 `uv` 管理依赖
-- 如果要完整运行结构和物性流程，建议使用支持 CUDA 的 GPU
+- 推荐使用 `uv` 管理依赖
+- 如需完整运行结构和物性计算流程，建议使用支持 CUDA 的 GPU
 
-常见依赖包括：
+`pyproject.toml` 中的主要依赖包括：
 
-- `torch`
-- `pymatgen`
-- `ase`
+- `agno`
+- `google-adk`
+- `pandas`、`numpy`、`matplotlib`、`seaborn`
+- `ase`、`pymatgen`
+- `scikit-learn`、`xgboost`、`joblib`
+- `torch`、`torchvision`、`torchaudio`
 - `mattersim`
-- `phonopy`
 
 > [!IMPORTANT]
-> `pyproject.toml` 当前默认锁定 `cu124` 版本的 PyTorch。如果你的 CUDA 版本不同，需要手动安装匹配版本。
+> 当前 `pyproject.toml` 默认固定了 CUDA 12.4 对应的 PyTorch 轮子（`cu124`）。如果你的环境不是这一版本，需要手动安装匹配的 PyTorch。
 
 ## 安装
 
-### 方式一：uv
+### 方式一：使用 `uv`
 
 ```bash
 pip install uv
@@ -121,7 +89,7 @@ uv sync
 uv sync --extra dev
 ```
 
-### 方式二：pip
+### 方式二：使用 `pip`
 
 ```bash
 python -m venv .venv
@@ -129,7 +97,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-如果需要手动安装 CUDA 版 PyTorch：
+手动安装 CUDA 12.4 版 PyTorch 示例：
 
 ```bash
 pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
@@ -137,15 +105,13 @@ pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124
 
 ## 环境变量
 
-项目会从仓库根目录 `.env` 中读取环境变量。先复制模板：
+先从模板生成 `.env`：
 
 ```bash
 copy .env.example .env
 ```
 
-### 最小模型配置
-
-项目现在只保留两个明确的模型槽位：
+当前模板中包含：
 
 - `WORKFLOW_MODEL`
 - `WORKFLOW_API_KEY`
@@ -154,21 +120,10 @@ copy .env.example .env
 - `THEORY_UPDATE_API_KEY`
 - `THEORY_UPDATE_BASE_URL`
 - `TEMPERATURE`
+- `MP_API_KEY`
+- `AFLOW_BASE_URL`（可选）
 
-说明：
-
-- `WORKFLOW_MODEL` 用于主 workflow 的筛选步骤
-- `THEORY_UPDATE_MODEL` 用于文档更新步骤
-- 两者默认都是 `deepseek-chat`
-- 两者默认 base URL 都指向 `https://api.deepseek.com/v1`
-- 变量名应为 `WORKFLOW_BASE_URL`，不是 `WORKFLOW_BASW_URL`
-
-### 数据库或查询相关变量
-
-- `MP_API_KEY`：Materials Project 查询必需
-- `AFLOW_BASE_URL`：可选，默认 `https://aflowlib.org/API/aflux/`
-
-### 最小示例
+最小示例：
 
 ```dotenv
 WORKFLOW_MODEL=deepseek-chat
@@ -180,62 +135,61 @@ THEORY_UPDATE_API_KEY=your_api_key
 THEORY_UPDATE_BASE_URL=https://api.deepseek.com/v1
 
 TEMPERATURE=0.3
-
 MP_API_KEY=your_materials_project_key
 ```
 
+说明：
+
+- `WORKFLOW_*` 主要用于 `main.py` 中的候选材料筛选。
+- `THEORY_UPDATE_*` 主要用于 `main.py` 中的理论文档更新。
+- `MP_API_KEY` 用于 Materials Project 查询。
+
 ## 快速开始
 
-### 1. 安装依赖
+安装依赖：
 
 ```bash
 uv sync
 ```
 
-### 2. 创建并编辑 `.env`
+创建 `.env`：
 
 ```bash
 copy .env.example .env
 ```
 
-至少配置：
-
-- `WORKFLOW_API_KEY`
-- `THEORY_UPDATE_API_KEY`
-- 如果依赖 Materials Project，则配置 `MP_API_KEY`
-
-### 3. 运行 LLM 工作流
+运行 LLM 工作流：
 
 ```bash
 python main.py
 ```
 
-### 4. 或运行 BO-only 工作流
+运行纯 BO 工作流：
 
 ```bash
 python main_bo_only.py
 ```
 
-### 5. 汇总结果
+汇总结果：
 
 ```bash
 python scripts/summarize_results.py --results-dir llm/results
-python scripts/summarize_results.py --results-dir bo_new/results
+python scripts/summarize_results.py --results-dir bo/results
 ```
 
-## LLM 工作流用法
+## LLM 工作流
 
-### 基础运行
+入口：
 
 ```bash
 python main.py
 ```
 
-默认输出路径：
+当前代码默认使用的根目录：
 
 - `llm/results`
-- `llm/data`
 - `llm/models/GPR`
+- `llm/data`
 - `llm/doc`
 
 默认初始输入：
@@ -245,19 +199,19 @@ python main.py
 
 ### 常用命令
 
-固定轮数：
+固定运行轮数：
 
 ```bash
 python main.py --max-iterations 3
 ```
 
-基于现有进度继续：
+基于已有进度继续运行：
 
 ```bash
 python main.py --add-iterations 2
 ```
 
-覆盖采样或筛选参数：
+覆盖采样和筛选参数：
 
 ```bash
 python main.py --samples 150 --n-top-candidates 30 --n-select 10 --n-structures 5
@@ -275,7 +229,7 @@ python main.py --num-gpus 2
 python main.py --no-websearch-enabled
 ```
 
-允许结构计算部分失败：
+允许部分结构计算失败后继续：
 
 ```bash
 python main.py --allow-partial-structure
@@ -287,27 +241,25 @@ python main.py --allow-partial-structure
 python main.py --reset
 ```
 
-指定初始数据与理论文档：
+指定初始数据和理论文档：
 
 ```bash
 python main.py --init-data data/processed_data.csv --init-doc doc/Theoretical_principle_document.md
 ```
 
-### AgentOS 模式
+### AgentOS 运行模式
 
 ```bash
-python main.py --runtime agentos --agentos-host 0.0.0.0 --agentos-port 8000
+python main.py --runtime agentos --agentos-host 127.0.0.1 --agentos-port 7777
 ```
 
-### `config/agentos_params.csv`
+`main.py` 还会读写 `config/agentos_params.csv`。这个文件在当前项目中的作用基本是：
 
-`main.py` 会读取并回写 `config/agentos_params.csv`。它可以用作：
-
-- UI 或默认参数表
+- 运行界面的可编辑默认参数表
 - 运行时覆盖参数表
-- 轻量级参数记忆表
+- 跨运行的轻量参数记忆表
 
-常见字段：
+常见参数键包括：
 
 - `websearch_enabled`
 - `websearch_top_n`
@@ -319,13 +271,28 @@ python main.py --runtime agentos --agentos-host 0.0.0.0 --agentos-port 8000
 - `skip_doc_update`
 - `agentos_default_iterations`
 
-## BO-only 工作流用法
+## 纯 BO 工作流
 
-### 基础运行
+入口：
 
 ```bash
 python main_bo_only.py
 ```
+
+当前代码中的输出根目录：
+
+- `bo/results`
+- `bo/models/GPR`
+- `bo/data`
+
+纯 BO 工作流执行的核心步骤包括：
+
+1. 模型训练
+2. BO 候选生成
+3. 从候选中选取前 `n_select` 个进入后续计算
+4. 结构生成与下游计算
+5. 合并结果并提取成功材料
+6. 更新下一轮数据集
 
 ### 常用命令
 
@@ -341,7 +308,7 @@ python main_bo_only.py --max-iterations 10
 python main_bo_only.py --start-iteration 3 --max-iterations 10
 ```
 
-覆盖 BO 参数：
+覆盖采样或结构参数：
 
 ```bash
 python main_bo_only.py --samples 150 --n-top-candidates 30 --n-select 10 --n-structures 5
@@ -353,7 +320,13 @@ python main_bo_only.py --samples 150 --n-top-candidates 30 --n-select 10 --n-str
 python main_bo_only.py --init-data data/processed_data.csv
 ```
 
-重置并重跑：
+允许部分结构计算失败后继续：
+
+```bash
+python main_bo_only.py --allow-partial-structure
+```
+
+重置并重新运行：
 
 ```bash
 python main_bo_only.py --reset
@@ -363,28 +336,32 @@ python main_bo_only.py --reset
 
 ### `config/config.yaml`
 
-主算法或工具配置文件，包含：
+这是主算法和工具配置文件，包含：
 
 - 循环控制
-- Bayesian Optimization 参数
-- 模型参数
-- 生成器或工具参数
-- 阈值与超时
+- BO 采样和采集函数参数
+- 模型默认参数
+- 组分生成约束
+- 外部工具参数
+- 阈值、日志和输出示例配置
 
-重点字段：
+当前项目里比较关键的字段包括：
 
 - `loop.max_iterations`
 - `bayesian_optimization.acquisition.xi`
 - `bayesian_optimization.sampling.n_samples`
+- `bayesian_optimization.sampling.hard_constraints`
 - `tools.crystallm.model_path`
 - `tools.ai4kappa.k_threshold`
 - `tools.mattersim.imaginary_freq_threshold`
 
 ### `config/llm_config.yaml`
 
-这个文件主要描述 LLM 输入输出布局和示例模型配置。实际运行时的模型链路主要由 `.env` 和 `src/agents/llm_models.py` 决定。
+该文件主要描述 LLM 工作流中的理论文档版本命名方式，例如：
 
-## 输出结构
+- `llm/doc/v0.0.{version}/Theoretical_principle_document.md`
+
+## 输出目录说明
 
 ### LLM 模式
 
@@ -407,18 +384,24 @@ llm/
 |  |- v0.0.1/Theoretical_principle_document.md
 ```
 
-### BO-only 模式
+### BO 模式
 
 ```text
-bo_new/
+bo/
 |- data/
+|  |- iteration_0/data.csv
 |- models/
+|  |- GPR/iteration_1/...
 |- results/
+|  |- progress.json
+|  |- iteration_1/
+|     |- selected_results/
+|     |- success_examples/
 ```
 
 ### `progress.json`
 
-工作流使用 `progress.json` 避免重复执行已完成步骤。常见跟踪步骤包括：
+两种工作流都使用 `progress.json` 来避免重复执行已完成步骤。按模式不同，常见跟踪步骤包括：
 
 - `train_model`
 - `bayesian_optimization`
@@ -427,51 +410,48 @@ bo_new/
 - `merge_results`
 - `success_extraction`
 - `document_update`
+- `data_update`
 
 ## 辅助脚本
 
-### 结果汇总
+汇总各轮成功材料或稳定材料：
 
 ```bash
 python scripts/summarize_results.py --results-dir llm/results
+python scripts/summarize_results.py --results-dir bo/results
 ```
 
-该脚本会把每轮的 success 或 stable CSV 汇总成总表。
+排查环境或筛选工具：
 
-### 环境或工具检查
+- `scripts/check_screening_tools.py`
 
-`scripts/check_screening_tools.py` 主要用于排错，不作为默认 quick start 步骤。
-
-### 分析脚本
-
-`analysis_scripts/` 中包含实验后处理和画图脚本，例如：
+实验分析辅助脚本：
 
 - `analysis_scripts/run_and_filter_iterations.py`
 - `analysis_scripts/compare_and_plot.py`
+- `scripts/compare_llm_bo_formula_overlap.py`
 
-这些脚本更适合在实验完成后使用。
+> [!NOTE]
+> 某些分析脚本内部仍然保留了 `bo_new` 这样的历史命名标签，但 `main_bo_only.py` 当前真实输出目录已经是 `bo`。
 
 ## 排错
 
-### 没有可用的 LLM
+### 没有可用的 LLM 配置
 
 检查：
 
 - `.env` 是否存在
-- `WORKFLOW_API_KEY` 和 `THEORY_UPDATE_API_KEY` 是否已设置
-- `WORKFLOW_MODEL` 和 `THEORY_UPDATE_MODEL` 是否是当前 endpoint 支持的模型名
+- `WORKFLOW_API_KEY` 是否已设置
+- `THEORY_UPDATE_API_KEY` 是否已设置
+- 所填模型名是否能被对应接口正常支持
 
 ### Materials Project 查询失败
 
 检查 `.env` 中是否已配置 `MP_API_KEY`。
 
-### OQMD 或 AFLOW 查询异常
-
-代码已经实现 Python API 到 HTTP 的 fallback。如果两者都失败，通常是上游服务或环境问题，而不是主流程逻辑问题。
-
 ### CUDA 或 PyTorch 不匹配
 
-请按本机环境重新安装对应版本的 PyTorch。
+请按本机 CUDA 或 CPU 环境重新安装匹配版本的 PyTorch。
 
 ### Windows 编码问题
 
@@ -484,12 +464,13 @@ python main.py
 
 ## 参考文件
 
-如果你后续还要继续扩展文档，可以优先查看：
+如果后续还要继续扩展文档，建议优先查看：
 
 - `main.py`
 - `main_bo_only.py`
 - `src/workflow/agno_pipeline.py`
+- `src/workflow/agno_steps.py`
 - `src/agents/llm_models.py`
-- `src/utils/param_sheet.py`
+- `src/utils/path_config.py`
 - `src/utils/progress_tracker.py`
 - `scripts/summarize_results.py`
