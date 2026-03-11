@@ -30,8 +30,8 @@ aslk/
 |- README.md
 |- README.zh-CN.md
 |- .env.example
-|- pyproject.toml
 |- requirements.txt
+|- uv.lock
 |- config/
 |  |- config.yaml
 |  |- llm_config.yaml
@@ -41,19 +41,18 @@ aslk/
 |  |- database/
 |  |- generators/
 |  |- models/
+|  |  |- README.md
 |  |- tools/
 |  |- utils/
 |  |- workflow/
-|- scripts/
-|- analysis_scripts/
 |- data/
+|  |- processed_data.csv
 |- doc/
-|- llm/
-|- bo_first_iteration/
+|  |- Theoretical_principle_document.md
 ```
 
 > [!NOTE]
-> The BO-only runtime in `main_bo_only.py` now writes to `bo/...`. Some historical scripts and old experiment folders still reference `bo_new/...` or earlier snapshots. The README below follows the current runtime behavior.
+> This README is calibrated to the files currently tracked by git. Runtime-generated folders such as `llm/` and `bo/` are outputs, not tracked source files.
 
 ## Requirements
 
@@ -61,7 +60,7 @@ aslk/
 - `uv` recommended for dependency management
 - CUDA-capable GPU recommended for full structure and property calculations
 
-Key dependencies declared in `pyproject.toml` include:
+Key dependencies declared in `requirements.txt` and locked in `uv.lock` include:
 
 - `agno`
 - `google-adk`
@@ -72,30 +71,19 @@ Key dependencies declared in `pyproject.toml` include:
 - `mattersim`
 
 > [!IMPORTANT]
-> `pyproject.toml` currently pins CUDA 12.4 PyTorch wheels (`cu124`). If your machine uses a different CUDA stack, install a matching PyTorch build manually.
+> `requirements.txt` includes CUDA 12.4 PyTorch packages. If your machine uses a different CUDA stack, install a matching PyTorch build manually.
 
 ## Installation
 
-### Option 1: `uv`
-
-```bash
-pip install uv
-uv sync
-```
-
-Development extras:
-
-```bash
-uv sync --extra dev
-```
-
-### Option 2: `pip`
+### `pip`
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+If you use `uv`, the lockfile tracked in this repository is `uv.lock`.
 
 Manual CUDA PyTorch example:
 
@@ -168,13 +156,6 @@ Run the BO-only workflow:
 
 ```bash
 python main_bo_only.py
-```
-
-Summarize results:
-
-```bash
-python scripts/summarize_results.py --results-dir llm/results
-python scripts/summarize_results.py --results-dir bo/results
 ```
 
 ## LLM Workflow
@@ -412,28 +393,6 @@ Both workflows use `progress.json` to skip completed work when resuming. Dependi
 - `document_update`
 - `data_update`
 
-## Utility Scripts
-
-Summarize per-iteration success or stable materials:
-
-```bash
-python scripts/summarize_results.py --results-dir llm/results
-python scripts/summarize_results.py --results-dir bo/results
-```
-
-Troubleshooting helper:
-
-- `scripts/check_screening_tools.py`
-
-Analysis helpers:
-
-- `analysis_scripts/run_and_filter_iterations.py`
-- `analysis_scripts/compare_and_plot.py`
-- `scripts/compare_llm_bo_formula_overlap.py`
-
-> [!NOTE]
-> Some analysis scripts still use historical labels such as `bo_new` internally. That does not change the current runtime output root in `main_bo_only.py`, which is `bo`.
-
 ## Troubleshooting
 
 ### No usable LLM configured
@@ -471,6 +430,9 @@ If you want to extend the documentation further, the most relevant files are:
 - `src/workflow/agno_pipeline.py`
 - `src/workflow/agno_steps.py`
 - `src/agents/llm_models.py`
+- `config/config.yaml`
+- `config/llm_config.yaml`
 - `src/utils/path_config.py`
 - `src/utils/progress_tracker.py`
-- `scripts/summarize_results.py`
+- `data/processed_data.csv`
+- `doc/Theoretical_principle_document.md`

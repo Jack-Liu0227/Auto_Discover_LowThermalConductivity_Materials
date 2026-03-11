@@ -30,8 +30,8 @@ aslk/
 |- README.md
 |- README.zh-CN.md
 |- .env.example
-|- pyproject.toml
 |- requirements.txt
+|- uv.lock
 |- config/
 |  |- config.yaml
 |  |- llm_config.yaml
@@ -41,19 +41,18 @@ aslk/
 |  |- database/
 |  |- generators/
 |  |- models/
+|  |  |- README.md
 |  |- tools/
 |  |- utils/
 |  |- workflow/
-|- scripts/
-|- analysis_scripts/
 |- data/
+|  |- processed_data.csv
 |- doc/
-|- llm/
-|- bo_first_iteration/
+|  |- Theoretical_principle_document.md
 ```
 
 > [!NOTE]
-> `main_bo_only.py` 当前已经切换为写入 `bo/...`。仓库中仍然保留了一些历史脚本、旧实验目录或旧命名，例如 `bo_new/...`。本文档以下内容以当前入口脚本的实际行为为准。
+> 本文档已按当前 git 实际追踪的文件重新校准。`llm/`、`bo/` 这类目录属于运行期输出，不是仓库中受版本控制的源码目录。
 
 ## 环境要求
 
@@ -61,7 +60,7 @@ aslk/
 - 推荐使用 `uv` 管理依赖
 - 如需完整运行结构和物性计算流程，建议使用支持 CUDA 的 GPU
 
-`pyproject.toml` 中的主要依赖包括：
+`requirements.txt` 和 `uv.lock` 反映的主要依赖包括：
 
 - `agno`
 - `google-adk`
@@ -72,30 +71,19 @@ aslk/
 - `mattersim`
 
 > [!IMPORTANT]
-> 当前 `pyproject.toml` 默认固定了 CUDA 12.4 对应的 PyTorch 轮子（`cu124`）。如果你的环境不是这一版本，需要手动安装匹配的 PyTorch。
+> 当前 `requirements.txt` 包含 CUDA 12.4 对应的 PyTorch 包。如果你的环境不是这一版本，需要手动安装匹配的 PyTorch。
 
 ## 安装
 
-### 方式一：使用 `uv`
-
-```bash
-pip install uv
-uv sync
-```
-
-安装开发依赖：
-
-```bash
-uv sync --extra dev
-```
-
-### 方式二：使用 `pip`
+### 方式一：使用 `pip`
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+如果你使用 `uv`，当前仓库中跟踪的锁文件是 `uv.lock`。
 
 手动安装 CUDA 12.4 版 PyTorch 示例：
 
@@ -168,13 +156,6 @@ python main.py
 
 ```bash
 python main_bo_only.py
-```
-
-汇总结果：
-
-```bash
-python scripts/summarize_results.py --results-dir llm/results
-python scripts/summarize_results.py --results-dir bo/results
 ```
 
 ## LLM 工作流
@@ -412,28 +393,6 @@ bo/
 - `document_update`
 - `data_update`
 
-## 辅助脚本
-
-汇总各轮成功材料或稳定材料：
-
-```bash
-python scripts/summarize_results.py --results-dir llm/results
-python scripts/summarize_results.py --results-dir bo/results
-```
-
-排查环境或筛选工具：
-
-- `scripts/check_screening_tools.py`
-
-实验分析辅助脚本：
-
-- `analysis_scripts/run_and_filter_iterations.py`
-- `analysis_scripts/compare_and_plot.py`
-- `scripts/compare_llm_bo_formula_overlap.py`
-
-> [!NOTE]
-> 某些分析脚本内部仍然保留了 `bo_new` 这样的历史命名标签，但 `main_bo_only.py` 当前真实输出目录已经是 `bo`。
-
 ## 排错
 
 ### 没有可用的 LLM 配置
@@ -471,6 +430,9 @@ python main.py
 - `src/workflow/agno_pipeline.py`
 - `src/workflow/agno_steps.py`
 - `src/agents/llm_models.py`
+- `config/config.yaml`
+- `config/llm_config.yaml`
 - `src/utils/path_config.py`
 - `src/utils/progress_tracker.py`
-- `scripts/summarize_results.py`
+- `data/processed_data.csv`
+- `doc/Theoretical_principle_document.md`
