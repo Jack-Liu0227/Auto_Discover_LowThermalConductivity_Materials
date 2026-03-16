@@ -5,28 +5,25 @@
 生成理论文档的更新版本，为下一轮迭代提供优化的理论指导。
 """
 
+import logging
 import os
+import re
+from collections import Counter
+from pathlib import Path
+from typing import Dict, List, Optional
+
 import json
 import pandas as pd
-import logging
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Optional
+
+from utils.theory_doc_context import build_websearch_theory_context, extract_markdown_section
 
 logger = logging.getLogger(__name__)
 THEORY_DOC_NAME = "Theoretical_principle_document.md"
+CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 
 class TheoryDocumentUpdater:
     """理论文档更新器"""
-    
-    def __init__(self, ai_client=None):
-        """
-        初始化文档更新器
-        
-        Args:
-            ai_client: AI 客户端实例（如果为 None，会自动创建）
-        """
 
     def __init__(self, ai_client=None):
         """
@@ -216,9 +213,19 @@ class TheoryDocumentUpdater:
         
         # 3. 格式化成功案例信息
         success_info = self._format_success_materials(df)
+        success_digest = self._summarize_success_patterns(df, iteration_num)
+        previous_dynamic_section = extract_markdown_section(original_doc, "4.") or "N/A"
+        theory_focus = build_websearch_theory_context(original_doc, max_chars=1200) or "N/A"
         
         # 4. 构建文档更新 prompt
-        prompt = self._build_update_prompt(original_doc, success_info)
+        prompt = self._build_update_prompt(
+            original_doc=original_doc,
+            success_info=success_info,
+            iteration_num=iteration_num,
+            previous_dynamic_section=previous_dynamic_section,
+            success_digest=success_digest,
+            theory_focus=theory_focus,
+        )
         
         # 5. 保存 LLM 输入
         input_file = self._save_input(prompt, iteration_num, results_root)
@@ -250,6 +257,18 @@ class TheoryDocumentUpdater:
             return None
         
         # 7. 保存 LLM 输出
+        if self._contains_cjk(updated_doc):
+            logger.error("LLM theory update produced non-English content with CJK characters")
+            language_error_output = "# Theory Document Update Result\n\n"
+            language_error_output += "**Status**: Failed\n\n"
+            language_error_output += "**Error**: Generated document contains Chinese/CJK characters.\n\n"
+            language_error_output += "**Requirement**: The self-evolving theory document must remain fully English.\n\n"
+            language_error_output += "**Action**: Reject this round and keep the previous English document unchanged.\n"
+
+            output_file = self._save_output(language_error_output, iteration_num, results_root)
+            logger.info(f"Saved language validation report: {output_file}")
+            return None
+
         output_file = self._save_output(updated_doc, iteration_num, results_root)
         logger.info(f"💾 LLM 输出已保存: {output_file}")
         
@@ -405,13 +424,93 @@ class TheoryDocumentUpdater:
 
         return "\n".join(lines)
     
-    def _build_update_prompt(self, original_doc: str, success_info: str) -> str:
+    def _summarize_success_patterns(self, df: pd.DataFrame, iteration_num: int) -> str:
+        formulas: list[str] = []
+        element_counter: Counter[str] = Counter()
+        chalcogen_counter: Counter[str] = Counter()
+        kappa_values: list[float] = []
+        structures_available = 0
+
+        for _, row in df.iterrows():
+            formula = str(row.get("composition", row.get("formula", "")) or "").strip()
+            if formula:
+                formulas.append(formula)
+                elements = set(re.findall(r"[A-Z][a-z]?", formula))
+                element_counter.update(elements)
+                for chalcogen in ("S", "Se", "Te"):
+                    if chalcogen in elements:
+                        chalcogen_counter[chalcogen] += 1
+
+            kappa = row.get(
+                "thermal_conductivity_w_mk",
+                row.get("thermal_conductivity", row.get("热导率(W/m·K)", row.get("热导率 (W/m·K)")))
+            )
+            if pd.notna(kappa):
+                try:
+                    kappa_values.append(float(kappa))
+                except Exception:
+                    pass
+
+            structure_data = row.get("structure", row.get("Structure"))
+            if pd.notna(structure_data):
+                structures_available += 1
+
+        lines = [
+            "## Current Round Evidence Digest",
+            f"- Iteration: {iteration_num}",
+            f"- Successful cases: {len(df)}",
+            f"- Representative formulas: {', '.join(formulas[:10]) if formulas else 'N/A'}",
+            (
+                f"- Thermal conductivity range: {min(kappa_values):.4f} to {max(kappa_values):.4f} W/(m-K)"
+                if kappa_values
+                else "- Thermal conductivity range: N/A"
+            ),
+            (
+                f"- Most frequent elements: {', '.join(f'{el} ({cnt})' for el, cnt in element_counter.most_common(8))}"
+                if element_counter
+                else "- Most frequent elements: N/A"
+            ),
+            (
+                f"- Chalcogen coverage: {', '.join(f'{el} ({cnt})' for el, cnt in chalcogen_counter.items())}"
+                if chalcogen_counter
+                else "- Chalcogen coverage: N/A"
+            ),
+            f"- Structures available: {structures_available}/{len(df)}",
+        ]
+        return "\n".join(lines)
+
+    def _build_update_prompt(
+        self,
+        original_doc: str,
+        success_info: str,
+        iteration_num: int,
+        previous_dynamic_section: str,
+        success_digest: str,
+        theory_focus: str,
+    ) -> str:
         """Build document update prompt"""
         prompt = f"""# Theoretical Document Update Task
 
-## Original Theoretical Document
+## Iteration Context
 
-{original_doc}
+- Current iteration: {iteration_num}
+- Objective: revise the theory document using this round's successful cases while preserving a coherent evolving document.
+
+## Previous Dynamic Update Zone
+
+{previous_dynamic_section}
+
+---
+
+## Previous Theory Focus Snapshot
+
+{theory_focus}
+
+---
+
+## Current Round Evidence Digest
+
+{success_digest}
 
 ---
 
@@ -421,38 +520,38 @@ class TheoryDocumentUpdater:
 
 ---
 
+## Original Theoretical Document
+
+{original_doc}
+
+---
+
 ## Update Task
 
-Based on successful cases, update the theoretical principles document. Use **theoretical summary format**, not specific case lists.
+Revise the complete theoretical principles document so it reflects the current round instead of repeating a static template.
 
-**Update Focus**:
+Editing rules:
 
-1. **Analyze Common Patterns**:
-   - Element combination patterns
-   - Mass contrast distribution
-   - Lone pair electron effects
-   - Structural feature commonalities
+1. Treat Section 4 as evolving memory, not as fixed boilerplate.
+2. Compare the **Previous Dynamic Update Zone** against the **Current Round Evidence Digest** and the full successful cases.
+3. Update **Section 4.1 Success Case Theory Summary** with only the patterns that are genuinely supported by this round's successful cases.
+4. Update **Section 4.2 Theory Optimization Record** with concrete priority or filter adjustments implied by this round.
+5. If an older claim is unsupported or contradicted by this round, weaken or remove it instead of preserving it automatically.
+6. Keep Sections 1-3 and 5-6 structurally stable unless a minimal wording adjustment is required to stay consistent with the revised Section 4.
+7. Do not output placeholder text, generic six-mechanism boilerplate, case tables, version metadata, timestamps, or changelog prose.
+8. Maintain the existing document structure and output the full Markdown document only.
+"""
+        prompt += """
 
-2. **Update Section 4**:
-   - 4.2 Theoretical Summary of Successful Cases: Extract patterns (e.g., "Te-containing ternary compounds show high success rate")
-   - 4.3 Theoretical Optimization Records: Document theoretical adjustments (e.g., "Increased Te element weight")
-
-3. **Format Requirements**:
-   - ❌ Avoid: Specific case tables, version numbers, timestamps, document metadata
-   - ✅ Use: Pure theoretical summary statements
-   - ❌ Do not add: "Version", "Update date", "Document version control", etc.
-   - ✅ Only add brief annotations like `[Updated this round]` at specific update locations
-
-4. **Output Requirements**:
-   - Output complete Markdown document directly
-   - Maintain original document core structure (Sections 1-6)
-   - Only update Section 4 content
-   - Do not add any metadata, version notes, or update logs
-   - Do not add extra explanations or descriptions
-
-**Output**: Pure theoretical document content without any metadata.
+Additional language requirements:
+- Use English only for the entire document.
+- Do not use any Chinese characters or mixed Chinese-English text.
+- Every heading, bullet, sentence, and note must be written in English only.
 """
         return prompt
+
+    def _contains_cjk(self, text: str) -> bool:
+        return bool(CJK_PATTERN.search(text or ""))
     
     def _save_input(self, prompt: str, iteration_num: int, results_root: str = "results") -> str:
         """保存 LLM 输入到文件"""

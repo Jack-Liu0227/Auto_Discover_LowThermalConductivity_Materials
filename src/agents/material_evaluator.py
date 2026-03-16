@@ -3,22 +3,27 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import pandas as pd
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
+SRC_DIR = Path(SCRIPT_DIR).parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
-from ai_client import AIClient
-from document_reader import DocumentReader
+from agents.ai_client import AIClient
+from agents.document_reader import DocumentReader
+from utils.theory_doc_context import build_websearch_theory_context
 
 
 class MaterialEvaluator:
@@ -52,7 +57,7 @@ class MaterialEvaluator:
         print("=" * 80)
 
         materials_info = self._format_materials_info(top_materials)
-        websearch_info = self._format_websearch_summary(top_materials)
+        websearch_info = self._format_websearch_summary(top_materials, iteration_num)
         prompt = self._build_evaluation_prompt(materials_info, websearch_info, n_select)
 
         input_file = self._save_input(prompt, iteration_num, results_root)
@@ -107,7 +112,59 @@ class MaterialEvaluator:
 
         return "\n".join(lines)
 
-    def _format_websearch_summary(self, materials: List[Dict]) -> str:
+    def _coerce_list_field(self, value: Any) -> list[Any]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        if isinstance(value, (tuple, set)):
+            return list(value)
+        if pd.isna(value):
+            return []
+
+        text = str(value).strip()
+        if not text or text.lower() == "nan":
+            return []
+        if text[0] in "[{(":
+            try:
+                parsed = ast.literal_eval(text)
+            except Exception:
+                return [text]
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, (tuple, set)):
+                return list(parsed)
+            return [parsed]
+        return [text]
+
+    @staticmethod
+    def _truncate_text(text: str, limit: int) -> str:
+        normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[: max(limit - 3, 0)].rstrip() + "..."
+
+    @staticmethod
+    def _parse_json_object(text: str) -> dict[str, Any] | None:
+        payload = str(text or "").strip()
+        if not payload:
+            return None
+        try:
+            data = json.loads(payload)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            pass
+
+        match = re.search(r"\{.*\}", payload, re.DOTALL)
+        if not match:
+            return None
+        try:
+            data = json.loads(match.group(0))
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def _format_websearch_summary(self, materials: List[Dict], iteration_num: int) -> str:
         queries: List[str] = []
         summaries: List[str] = []
         sources: List[str] = []
@@ -120,23 +177,24 @@ class MaterialEvaluator:
             if formula and formula not in formulas:
                 formulas.append(formula)
                 elements.update(re.findall(r"[A-Z][a-z]?", formula))
-            for q in mat.get("websearch_queries", []) or []:
+            for q in self._coerce_list_field(mat.get("websearch_queries")):
                 q_str = str(q).strip()
                 if q_str and q_str not in queries:
                     queries.append(q_str)
             s = str(mat.get("websearch_summary", "") or "").strip()
-            if s and s not in summaries:
+            if s and s.lower() != "nan" and s not in summaries:
                 summaries.append(s)
-            for src in mat.get("websearch_sources", []) or []:
+            for src in self._coerce_list_field(mat.get("websearch_sources")):
                 src_str = str(src).strip()
                 if src_str and src_str not in sources:
                     sources.append(src_str)
-            for err in mat.get("websearch_errors", []) or []:
+            for err in self._coerce_list_field(mat.get("websearch_errors")):
                 err_str = str(err).strip()
                 if err_str and err_str not in errors:
                     errors.append(err_str)
 
-        return self._build_structured_websearch_summary(
+        return self._synthesize_websearch_summary(
+            iteration_num=iteration_num,
             formulas=formulas,
             elements=sorted(elements),
             queries=queries,
@@ -145,12 +203,9 @@ class MaterialEvaluator:
             errors=errors,
         )
 
-    @staticmethod
-    def _contains_any(text: str, keywords: List[str]) -> bool:
-        return any(keyword in text for keyword in keywords)
-
-    def _build_structured_websearch_summary(
+    def _build_websearch_synthesis_prompt(
         self,
+        iteration_num: int,
         formulas: List[str],
         elements: List[str],
         queries: List[str],
@@ -158,173 +213,169 @@ class MaterialEvaluator:
         sources: List[str],
         errors: List[str],
     ) -> str:
-        combined = " ".join([*queries, *summaries]).lower()
-        formula_text = ", ".join(formulas[:8]) if formulas else "N/A"
-        element_text = "-".join(elements) if elements else "N/A"
-
-        overview_mechanisms: List[str] = []
-        if self._contains_any(combined, ["anharm", "soft phonon", "soft mode", "soft vibrat"]):
-            overview_mechanisms.append("strong anharmonicity")
-        if self._contains_any(combined, ["mass disorder", "disorder", "distortion", "partial occup", "defect"]):
-            overview_mechanisms.append("mass and structural disorder scattering")
-        if self._contains_any(combined, ["lone pair", "lpe"]):
-            overview_mechanisms.append("lone-pair-induced local distortion")
-        if self._contains_any(combined, ["rattling", "localized", "resonant scattering", "resonance"]):
-            overview_mechanisms.append("local rattling modes")
-        if self._contains_any(combined, ["flatten", "flat branch", "group veloc", "mean free path", "boundary scattering"]):
-            overview_mechanisms.append("reduced group velocity from structural complexity")
-        if not overview_mechanisms:
-            overview_mechanisms = [
-                "strong anharmonicity",
-                "mass and structural disorder scattering",
-                "lone-pair-induced local distortion",
-                "local rattling modes",
-                "reduced group velocity from structural complexity",
-            ]
-
-        has_lone_pair = any(el in {"As", "Bi", "Ge", "Sb", "Sn", "Pb"} for el in elements) or self._contains_any(
-            combined, ["lone pair", "lpe"]
+        theory_context = build_websearch_theory_context(self.doc_content, max_chars=420) or "N/A"
+        formula_text = ", ".join(formulas[:6]) if formulas else "N/A"
+        query_line = self._truncate_text(queries[0], 240) if queries else "N/A"
+        summary_block = (
+            "\n".join(f"- {self._truncate_text(item, 280)}" for item in summaries[:3])
+            if summaries
+            else "- N/A"
         )
-        has_rattling = "Ag" in elements or self._contains_any(combined, ["rattling", "localized", "resonant"])
-        has_disorder = self._contains_any(
-            combined, ["mass disorder", "disorder", "distortion", "partial occup", "defect", "boundary scattering"]
-        )
+        source_block = "\n".join(f"- {item}" for item in sources[:6]) if sources else "- N/A"
+        error_block = "\n".join(f"- {self._truncate_text(item, 180)}" for item in errors[:4]) if errors else "- None"
 
-        mechanism_1 = (
-            "These materials often feature soft bonding, complex local coordination environments, and low-frequency vibrational modes, "
-            "which together produce strong lattice anharmonicity. Strong anharmonicity enhances phonon-phonon scattering, shortens phonon lifetimes, "
-            "and therefore suppresses lattice thermal conductivity."
-        )
-        if self._contains_any(combined, ["anharmonic scattering", "anharmonicities"]):
-            mechanism_1 = (
-                "The search results explicitly identify anharmonic scattering / large anharmonicities as an important origin of suppressed heat transport. "
-                "Soft bonding environments, local structural distortions, and low-frequency vibrational modes strengthen anharmonicity, "
-                "thereby increasing phonon-phonon scattering and lowering lattice thermal conductivity."
-            )
+        return f"""# WebSearch Evidence Distillation Task
 
-        mechanism_2 = (
-            "These candidate systems contain multiple elements, so differences in atomic mass and local bonding environments generate mass fluctuation "
-            "and force-constant disorder. Partial occupancy, local disorder, and structural distortion can further enhance phonon scattering, "
-            "especially for mid- and high-frequency phonons."
-        )
-        if has_disorder:
-            mechanism_2 = (
-                "The search results mention disorder / distortion of the unit cell and scattering from defects across multiple length scales. "
-                f"For multicomponent {element_text} systems, differences in atomic mass and local coordination environments create mass fluctuation "
-                "and force-constant disorder, while local disorder, partial occupancy, and structural distortion further strengthen phonon scattering."
-            )
+Return JSON only:
+{{
+  "distilled_evidence": [
+    "evidence point 1",
+    "evidence point 2",
+    "evidence point 3"
+  ]
+}}
 
-        mechanism_3 = (
-            "As and Bi are commonly associated with lone-pair activity. Lone-pair electrons can induce off-centering, local structural distortion, "
-            "and soft vibrational modes, which increase anharmonicity and reduce phonon transport efficiency."
-        )
-        if has_lone_pair:
-            mechanism_3 = (
-                "The search results indicate that lone-pair electrons can produce large anharmonicities and are closely associated with low lattice thermal conductivity. "
-                "In systems containing As, Bi, or Ge, lone-pair activity may induce local off-centering and structural distortion, activate soft vibrational modes, "
-                "and reduce phonon transport efficiency."
-            )
+Constraints:
+- Return 3 to 5 evidence points when evidence exists
+- Each point must be a short sentence
+- Use only claims supported by the raw search evidence
+- Do not include URLs
+- Do not repeat the query
+- Do not use markdown headings
+- Do not use mechanism templates
 
-        mechanism_4 = (
-            "The literature indicates that heavy atoms or weakly bound atoms can form rattling-like localized vibrational modes within the lattice. "
-            "These modes can flatten vibrational branches, reduce group velocities, and enhance phonon scattering through local resonance."
-        )
-        if has_rattling:
-            mechanism_4 = (
-                "The search results mention localized rattling atoms and resonant scattering. "
-                "Localized rattling modes can introduce resonant scattering, flatten vibrational branches, reduce phonon group velocities, "
-                "and substantially shorten phonon mean free paths. In silver-based compounds, a relatively soft Ag sublattice may produce similar low-frequency localized vibrations."
-            )
+Iteration: {iteration_num}
+Candidate formulas: {formula_text}
 
-        mechanism_5 = (
-            "When a material has a complex unit cell and many vibrational branches, phonon dispersions become flatter and the average group velocity decreases. "
-            "Even without extremely strong defect scattering, structural complexity alone can suppress heat transport."
-        )
-        if self._contains_any(combined, ["flatten", "flat branch", "group veloc"]):
-            mechanism_5 = (
-                "The search results refer to flattened vibrational branches and reduced group velocities. "
-                "This indicates that complex unit cells and locally complex structures can flatten phonon dispersions and reduce average group velocity, "
-                "directly weakening lattice heat transport."
-            )
+Current theory context:
+{theory_context}
 
-        mechanism_6 = (
-            "Grain boundaries, vacancies, stacking faults, strain fluctuations, and local structural modulation can introduce additional phonon scattering "
-            "across different frequency ranges and further reduce thermal conductivity."
-        )
-        if self._contains_any(combined, ["mean free path", "boundary scattering", "defect", "interatomic spacing"]):
-            mechanism_6 = (
-                "The search results indicate that the phonon mean free path can be strongly reduced by boundary scattering, anharmonic scattering, "
-                "and defects of different dimensionalities, in some cases approaching the interatomic spacing. "
-                "Grain boundaries, vacancies, stacking faults, strain fluctuations, and structural modulation can therefore create broadband phonon scattering and further depress lattice thermal conductivity."
-            )
+Executed unified query:
+{query_line}
 
-        common_points: List[str] = []
-        if "Ag" in elements:
-            common_points.append("Ag-related low-frequency soft vibrations or rattling-like modes")
-        if has_lone_pair:
-            common_points.append("local distortions and strong anharmonicity induced by lone-pair-active As/Bi/Ge species")
-        if any(el in {"Se", "Te"} for el in elements) or has_disorder:
-            common_points.append("mass-disorder scattering from Se/Te chemistry and multicomponent mixing")
-        common_points.append("low group velocity and short phonon mean free path caused by complex crystal structures")
+Raw search evidence:
+{summary_block}
 
-        lines: List[str] = [
-            "Low Lattice Thermal Conductivity Mechanism Summary",
-            "",
-            "Search Query",
-            queries[0] if queries else "N/A",
-            "",
-            "Overall Conclusion",
-            (
-                f"For {element_text}-based silver chalcogenide candidate materials"
-                if "Ag" in elements
-                else f"For {element_text}-based candidate materials"
-            )
-            + ", the WebSearch evidence suggests that the low lattice thermal conductivity does not arise from a single factor. "
-            + "It is typically governed by multiple cooperative mechanisms, including "
-            + ", ".join(overview_mechanisms)
-            + "."
-            + (f" Representative candidate formulas covered by the aggregated search include: {formula_text}." if formulas else ""),
-            "",
-            "Mechanism 1: Strong Anharmonicity",
-            mechanism_1,
-            "",
-            "Mechanism 2: Mass and Structural Disorder Scattering",
-            mechanism_2,
-            "",
-            "Mechanism 3: Lone-Pair-Induced Local Distortion",
-            mechanism_3,
-            "",
-            "Mechanism 4: Rattling and Local Resonant Scattering",
-            mechanism_4,
-            "",
-            "Mechanism 5: Reduced Group Velocity from Structural Complexity",
-            mechanism_5,
-            "",
-            "Mechanism 6: Defect-Driven and Multiscale Scattering",
-            mechanism_6,
-            "",
-            "Shared Interpretation for the Candidate Materials",
-            (
-                f"For materials such as {formula_text}, the most plausible shared mechanisms are: "
-                + "; ".join(common_points)
-                + "."
-            ),
-            "",
-            "One-Sentence Summary",
-            "The low lattice thermal conductivity of these materials is most plausibly caused by the combined action of strong anharmonicity, disorder/distortion scattering, lone-pair effects, local rattling modes, reduced group velocity from structural complexity, and multiscale defect scattering.",
-            "",
-            "References",
+Sources:
+{source_block}
+
+Errors:
+{error_block}
+"""
+
+    def _render_websearch_evidence(
+        self,
+        unified_query: str,
+        distilled_evidence: list[str],
+        sources: list[str],
+    ) -> str:
+        lines = [
+            f"- Unified query: {str(unified_query or '').strip() or 'N/A'}",
+            "- Distilled evidence:",
         ]
+        if distilled_evidence:
+            lines.extend(f"- {self._truncate_text(item, 280)}" for item in distilled_evidence[:5])
+        else:
+            lines.append("- N/A")
 
+        lines.extend(["", "References"])
         if sources:
-            lines.extend(sources[:15])
+            lines.extend(sources[:10])
         else:
             lines.append("N/A")
 
-        if errors:
-            lines.extend(["", "Search Notes", json.dumps(errors[:5], ensure_ascii=False)])
-
         return "\n".join(lines)
+
+    def _build_websearch_fallback(
+        self,
+        iteration_num: int,
+        formulas: List[str],
+        elements: List[str],
+        queries: List[str],
+        summaries: List[str],
+        sources: List[str],
+        errors: List[str],
+    ) -> str:
+        del iteration_num, formulas, elements, errors
+        distilled = [self._truncate_text(snippet, 280) for snippet in summaries[:5]]
+        return self._render_websearch_evidence(
+            unified_query=queries[0] if queries else "",
+            distilled_evidence=distilled,
+            sources=sources,
+        )
+
+    def _synthesize_websearch_summary(
+        self,
+        iteration_num: int,
+        formulas: List[str],
+        elements: List[str],
+        queries: List[str],
+        summaries: List[str],
+        sources: List[str],
+        errors: List[str],
+    ) -> str:
+        del elements
+        queries = queries[:1]
+        summaries = summaries[:5]
+        sources = sources[:10]
+        errors = errors[:4]
+        query_value = queries[0] if queries else ""
+
+        if not queries and not summaries and not sources and not errors:
+            return self._build_websearch_fallback(
+                iteration_num=iteration_num,
+                formulas=formulas,
+                elements=[],
+                queries=queries,
+                summaries=summaries,
+                sources=sources,
+                errors=errors,
+            )
+
+        prompt = self._build_websearch_synthesis_prompt(
+            iteration_num=iteration_num,
+            formulas=formulas,
+            elements=[],
+            queries=queries,
+            summaries=summaries,
+            sources=sources,
+            errors=errors,
+        )
+        try:
+            synthesized = self.ai_client.chat(
+                prompt=prompt,
+                model_id=self.model_id,
+                temperature=self.ai_client.get_default_temperature("workflow"),
+                max_tokens=600,
+            )
+            parsed = self._parse_json_object(synthesized)
+            evidence = []
+            if parsed:
+                raw_items = parsed.get("distilled_evidence")
+                if isinstance(raw_items, list):
+                    evidence = [
+                        self._truncate_text(str(item), 280)
+                        for item in raw_items
+                        if str(item).strip()
+                    ][:5]
+            if evidence:
+                return self._render_websearch_evidence(
+                    unified_query=query_value,
+                    distilled_evidence=evidence,
+                    sources=sources,
+                )
+        except Exception as exc:
+            print(f"[evaluator] websearch synthesis failed, falling back to raw evidence: {exc}")
+
+        return self._build_websearch_fallback(
+            iteration_num=iteration_num,
+            formulas=formulas,
+            elements=[],
+            queries=queries,
+            summaries=summaries,
+            sources=sources,
+            errors=errors,
+        )
 
     def _build_evaluation_prompt(self, materials_info: str, websearch_info: str, n_select: int) -> str:
         prompt = f"""# Low Thermal Conductivity Material Evaluation Task
@@ -341,7 +392,7 @@ class MaterialEvaluator:
 
 ---
 
-## WebSearch Mechanism Summary
+## WebSearch Evidence
 
 {websearch_info}
 
@@ -357,7 +408,7 @@ You are a materials science expert. Based on the above theoretical principles do
    - Check if materials conform to the four major phonon scattering mechanisms.
    - Verify compliance with core evaluation parameters from the document.
    - Validate using successful-case theoretical summary if available.
-   - Use `WebSearch Mechanism Summary` as supplementary evidence only.
+   - Use `WebSearch Evidence` as supplementary evidence only.
 
 2. **Comprehensive Judgment Principles**:
    - Theoretical principle compliance > acquisition function value (EI/Score).

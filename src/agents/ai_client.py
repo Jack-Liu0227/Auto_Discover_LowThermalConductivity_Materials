@@ -128,14 +128,13 @@ class AIClient:
         litellm.num_retries = self.num_retries
         litellm.retry_on_timeout = True
 
-        response = completion(
-            model=actual_model,
+        response = self._completion_with_provider_retry(
+            actual_model=actual_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=model_config.get("api_key") or None,
             api_base=model_config.get("base_url") or None,
-            timeout=self.request_timeout_sec,
             **kwargs,
         )
         return response.choices[0].message["content"]
@@ -198,17 +197,54 @@ class AIClient:
         litellm.num_retries = self.num_retries
         litellm.retry_on_timeout = True
 
-        response = completion(
-            model=actual_model,
+        response = self._completion_with_provider_retry(
+            actual_model=actual_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             api_key=model_config.get("api_key") or None,
             api_base=model_config.get("base_url") or None,
-            timeout=self.request_timeout_sec,
             **kwargs,
         )
         return response.choices[0].message["content"]
+
+    def _completion_with_provider_retry(
+        self,
+        actual_model: str,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        api_key: Optional[str],
+        api_base: Optional[str],
+        **kwargs,
+    ):
+        request_kwargs = {
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "api_key": api_key,
+            "api_base": api_base,
+            "timeout": self.request_timeout_sec,
+            **kwargs,
+        }
+
+        try:
+            return completion(model=actual_model, **request_kwargs)
+        except Exception as exc:
+            if self._should_retry_with_openai_provider(actual_model, api_base, exc):
+                retried_model = f"openai/{actual_model}"
+                print(f"[provider-fallback] retrying with provider-qualified model: {retried_model}")
+                return completion(model=retried_model, **request_kwargs)
+            raise
+
+    @staticmethod
+    def _should_retry_with_openai_provider(actual_model: str, api_base: Optional[str], exc: Exception) -> bool:
+        if not api_base:
+            return False
+        if "/" in actual_model:
+            return False
+        error_text = str(exc)
+        return "LLM Provider NOT provided" in error_text
 
 
 if __name__ == "__main__":

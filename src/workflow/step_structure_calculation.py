@@ -355,6 +355,31 @@ def calculate_kappa_worker(args):
         return {"success": False, "formula": formula, "error": str(e)}
 
 
+def _load_relax_status(comp_dir: Path) -> tuple[set[str], set[str]]:
+    log_file = comp_dir / "relax_phonon_results.csv"
+    attempted: set[str] = set()
+    successful: set[str] = set()
+    if not log_file.exists():
+        return attempted, successful
+
+    try:
+        with open(log_file, "r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                cif_name = str(row.get("CIF_File") or "").strip()
+                if not cif_name:
+                    continue
+                attempted.add(cif_name)
+                relax_success = str(row.get("Relax_Success") or "").strip().upper() == "Y"
+                relaxed_cif = str(row.get("Relaxed_CIF") or "").strip()
+                if relax_success or relaxed_cif:
+                    successful.add(cif_name)
+    except Exception:
+        return set(), set()
+
+    return attempted, successful
+
+
 def step_structure_calculation(
     iteration_num: int,
     materials: list,
@@ -442,17 +467,6 @@ def step_structure_calculation(
         if comp_dir.exists():
             return len(list(comp_dir.glob("*.cif")))
         return 0
-
-    def _load_logged_cifs(comp_dir: Path):
-        log_file = comp_dir / "relax_phonon_results.csv"
-        if not log_file.exists():
-            return set()
-        try:
-            with open(log_file, "r", encoding="utf-8-sig", newline="") as f:
-                reader = csv.DictReader(f)
-                return {row.get("CIF_File") for row in reader if row.get("CIF_File")}
-        except Exception:
-            return set()
 
     for m in materials:
         m["formula"] = normalize_formula(str(m["formula"]))
@@ -581,7 +595,37 @@ def step_structure_calculation(
         safe_clear_memory(device)
 
     # === 4.2 弛豫 + 声子计算 ===
-    if tracker and tracker.is_substep_completed(iteration_num, "structure_calculation", SUBSTEP_RELAXATION):
+    relax_marked = tracker and tracker.is_substep_completed(iteration_num, "structure_calculation", SUBSTEP_RELAXATION)
+    if relax_marked:
+        relax_artifacts_valid = True
+        for m in materials:
+            formula = m["formula"]
+            gen_comp_dir = gen_output_dir / formula
+            search_dir = gen_comp_dir / "processed" if (gen_comp_dir / "processed").exists() else gen_comp_dir
+            source_cifs = {p.name for p in search_dir.glob("*.cif")} if search_dir.exists() else set()
+            if not source_cifs:
+                relax_artifacts_valid = False
+                break
+            relax_comp_dir = relax_output_dir / formula
+            attempted_cifs, successful_cifs = _load_relax_status(relax_comp_dir)
+            relaxed_cifs = {p.name for p in relax_comp_dir.glob("*.cif")} if relax_comp_dir.exists() else set()
+            # Downstream extraction only needs completed attempts plus produced artifacts,
+            # not 100% relaxation success for every generated CIF.
+            completed_cifs = attempted_cifs | relaxed_cifs
+            if not source_cifs.issubset(completed_cifs):
+                relax_artifacts_valid = False
+                break
+
+        if not relax_artifacts_valid:
+            print("\n[WARN] 子步骤 4.2 进度已记录完成，但弛豫产物不完整，重置后重跑")
+            if tracker:
+                tracker.reset_substep(iteration_num, "structure_calculation", SUBSTEP_RELAXATION)
+                tracker.reset_substep(iteration_num, "structure_calculation", SUBSTEP_PHONON)
+                tracker.reset_substep(iteration_num, "structure_calculation", SUBSTEP_DEDUP)
+                tracker.reset_substep(iteration_num, "structure_calculation", SUBSTEP_THERMAL)
+            relax_marked = False
+
+    if relax_marked:
         print("\n[SKIP] 子步骤 4.2（弛豫 + 声子计算）已完成，跳过")
         relax_complete = True
     else:
@@ -606,7 +650,7 @@ def step_structure_calculation(
             gen_comp_dir = gen_output_dir / formula
             relax_comp_dir = relax_output_dir / formula
             processed_dir = gen_comp_dir / "processed"
-            logged_cifs = _load_logged_cifs(relax_comp_dir)
+            attempted_cifs, successful_cifs = _load_relax_status(relax_comp_dir)
 
             search_dir = processed_dir if processed_dir.exists() else gen_comp_dir
 
@@ -617,12 +661,13 @@ def step_structure_calculation(
                     materials_with_structures.append(formula)
                 for cif_file in existing_cifs:
                     relaxed_cif = relax_comp_dir / cif_file.name
-                    if cif_file.name in logged_cifs:
+                    if cif_file.name in successful_cifs or relaxed_cif.exists():
                         continue
-                    if not relaxed_cif.exists():
-                        assigned_gpu = gpus[task_idx % len(gpus)]
-                        relax_tasks.append((str(cif_file), formula, str(relax_output_dir), pressure, assigned_gpu))
-                        task_idx += 1
+                    if allow_partial_completion and cif_file.name in attempted_cifs:
+                        continue
+                    assigned_gpu = gpus[task_idx % len(gpus)]
+                    relax_tasks.append((str(cif_file), formula, str(relax_output_dir), pressure, assigned_gpu))
+                    task_idx += 1
 
         if tracker and not tracker.is_substep_completed(iteration_num, "structure_calculation", SUBSTEP_GENERATION):
             if len(materials_with_structures) == len(materials):
@@ -767,9 +812,12 @@ def step_structure_calculation(
                 relax_complete = False
                 break
             comp_dir = relax_output_dir / formula
-            logged = _load_logged_cifs(comp_dir)
+            attempted_cifs, successful_cifs = _load_relax_status(comp_dir)
             relaxed = {p.name for p in comp_dir.glob("*.cif")} if comp_dir.exists() else set()
-            done = logged | relaxed
+            # Treat "all source CIFs were attempted" as sufficient for this stage to finish.
+            # Failed relaxations simply reduce the rows available in thermal_conductivity.csv;
+            # they should not block extraction for the successful subset.
+            done = attempted_cifs | relaxed
             if not src_cifs.issubset(done):
                 relax_complete = False
                 break

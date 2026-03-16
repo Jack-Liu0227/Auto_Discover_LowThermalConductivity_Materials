@@ -155,50 +155,6 @@ def setup_logger(log_dir):
     return logger, log_file
 
 
-def generate_compound(n_elements, max_atoms):
-    """
-    生成一个随机化合物
-
-    Args:
-        n_elements: 元素数量 (2 或 3)
-        max_atoms: 最大总原子数
-
-    Returns:
-        formula: 化学式字符串
-        composition: {元素: 原子数} 字典
-    """
-    # 随机选择元素
-    selected_elements = random.sample(ELEMENTS, n_elements)
-
-    # 随机确定总原子数 (最小为n_elements，每个元素至少1个)
-    # 小于等于max_atoms，所以上限是max_atoms
-    min_atoms = n_elements
-    total_atoms = random.randint(min_atoms, max_atoms)
-
-    # 为每个元素分配原子数 (至少1个)
-    remaining = total_atoms - n_elements
-    atom_counts = [1] * n_elements
-
-    # 随机分配剩余原子数
-    for i in range(remaining):
-        idx = random.randint(0, n_elements - 1)
-        atom_counts[idx] += 1
-
-    # 构建化学式
-    composition = {}
-    formula_parts = []
-    for elem, count in zip(selected_elements, atom_counts):
-        composition[elem] = count
-        if count == 1:
-            formula_parts.append(elem)
-        else:
-            formula_parts.append(f"{elem}{count}")
-
-    formula = ''.join(formula_parts)
-
-    return formula, composition, total_atoms
-
-
 def composition_to_formula(composition):
     """Build a stable formula string from a composition dict."""
     parts = []

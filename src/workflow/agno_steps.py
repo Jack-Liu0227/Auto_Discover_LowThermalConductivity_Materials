@@ -11,7 +11,17 @@ from pydantic import ValidationError
 
 from agents.screening_agent import enrich_topn_with_websearch, rank_by_ei
 from schemas import WorkflowInput
+from utils.bo_runtime import extract_initial_samples_from_result
+from utils.config_loader import get_effective_thresholds
 from utils.param_sheet import persist_param_values
+from utils.theory_doc_context import build_websearch_theory_context
+from utils.workflow_resume import (
+    load_saved_ai_evaluation_result,
+    load_saved_bayesian_result,
+    load_saved_document_update_result,
+    load_saved_extract_result,
+    reset_steps_from,
+)
 from workflow.agno_state import AGNO_SESSION_STATE_DEFAULT, AGNO_STATE_KEYS
 from workflow.step_ai_evaluation import step_ai_evaluation
 from workflow.step_bayesian_optimization import step_bayesian_optimization
@@ -46,7 +56,16 @@ def run_bayesian_step(
 ) -> dict[str, Any]:
     step_key = "bayesian_optimization"
     if tracker and tracker.is_step_completed(iteration_num, step_key):
-        return {"success": True, "skipped": True, "top_materials": [], "all_materials": []}
+        cached = load_saved_bayesian_result(
+            results_root=config["results_root"],
+            iteration_num=iteration_num,
+            n_top=int(config.get("top_k_bayes", 10)),
+        )
+        if cached is not None:
+            print(f"[resume] loaded saved BO artifacts for iteration {iteration_num}: {cached.get('artifact_path')}")
+            return cached
+        print(f"[resume] BO artifacts missing for iteration {iteration_num}, resetting progress from {step_key}")
+        reset_steps_from(tracker, iteration_num, step_key)
 
     result = step_bayesian_optimization(
         iteration_num=iteration_num,
@@ -68,16 +87,161 @@ def run_bayesian_step(
 def run_extract_step(iteration_num: int, config: dict[str, Any], tracker=None) -> dict[str, Any]:
     step_key = "success_extraction"
     if tracker and tracker.is_step_completed(iteration_num, step_key):
-        return {"success": True, "skipped": True}
+        cached = load_saved_extract_result(config["results_root"], iteration_num)
+        if cached is not None:
+            print(f"[resume] loaded saved extraction artifacts for iteration {iteration_num}")
+            return cached
+        print(f"[resume] extraction artifacts missing for iteration {iteration_num}, resetting progress from {step_key}")
+        reset_steps_from(tracker, iteration_num, step_key)
+
+    thresholds = get_effective_thresholds()
+    raw_k_threshold = config.get("k_threshold")
+    raw_imag_tol = config.get("phonon_imag_tol")
+    k_threshold = float(
+        thresholds["thermal_conductivity"] if raw_k_threshold is None else raw_k_threshold
+    )
+    imag_tol = float(
+        thresholds["dynamic_min_frequency"] if raw_imag_tol is None else raw_imag_tol
+    )
 
     result = step_extract_materials(
         iteration_num=iteration_num,
-        k_threshold=config["k_threshold"],
-        imag_tol=config.get("phonon_imag_tol", -0.1),
+        k_threshold=k_threshold,
+        imag_tol=imag_tol,
         results_root=config["results_root"],
     )
     if (result.get("success") or result.get("no_materials")) and tracker:
         tracker.mark_step_completed(iteration_num, step_key)
+    return result
+
+
+def run_ai_evaluation_step(
+    iteration_num: int,
+    config: dict[str, Any],
+    candidate_materials: list[dict[str, Any]],
+    tracker=None,
+) -> dict[str, Any]:
+    step_key = "ai_evaluation"
+    if tracker and tracker.is_step_completed(iteration_num, step_key):
+        cached = load_saved_ai_evaluation_result(config["results_root"], iteration_num)
+        if cached is not None:
+            print(f"[resume] loaded saved AI screening artifacts for iteration {iteration_num}")
+            return cached
+        print(f"[resume] AI screening artifacts missing for iteration {iteration_num}, resetting progress from {step_key}")
+        reset_steps_from(tracker, iteration_num, step_key)
+
+    result = step_ai_evaluation(
+        iteration_num=iteration_num,
+        candidate_materials=candidate_materials,
+        n_select=config["top_k_screen"],
+        path_config=config.get("path_config"),
+        results_root=config["results_root"],
+    )
+    if result.get("success") and tracker:
+        tracker.mark_step_completed(
+            iteration_num,
+            step_key,
+            metadata={
+                "selected_materials": len(result.get("selected_materials", [])),
+                "report_file": result.get("report_path"),
+            },
+        )
+    return result
+
+
+def run_structure_step(
+    iteration_num: int,
+    config: dict[str, Any],
+    materials: list[dict[str, Any]],
+    tracker=None,
+) -> dict[str, Any]:
+    step_key = "structure_calculation"
+    if tracker and tracker.is_step_completed(iteration_num, step_key):
+        results_root = Path(config["results_root"]) / f"iteration_{iteration_num}"
+        processed_dir = results_root / "processed_structures"
+        relax_dir = results_root / "MyRelaxStructure"
+        if processed_dir.exists() or relax_dir.exists():
+            print(f"[resume] loaded saved structure artifacts for iteration {iteration_num}")
+            return {
+                "success": True,
+                "skipped": True,
+                "completed": True,
+                "gen_output_dir": str(processed_dir),
+                "relax_output_dir": str(relax_dir),
+            }
+        print(f"[resume] structure artifacts missing for iteration {iteration_num}, resetting progress from {step_key}")
+        reset_steps_from(tracker, iteration_num, step_key)
+
+    return step_structure_calculation(
+        iteration_num=iteration_num,
+        materials=materials,
+        n_structures=config["n_structures"],
+        max_workers=config["max_workers"],
+        relax_workers=config["relax_workers"],
+        phonon_workers=config["phonon_workers"],
+        pressure=config["pressure"],
+        device=config["device"],
+        gpus=config["gpus"],
+        results_root=config["results_root"],
+        tracker=tracker,
+        allow_partial_completion=config.get("allow_partial_structure", False),
+        path_config=config.get("path_config"),
+        relax_timeout_sec=config.get("relax_timeout_sec", 120),
+    )
+
+
+def run_merge_step(iteration_num: int, config: dict[str, Any], tracker=None) -> dict[str, Any]:
+    step_key = "merge_results"
+    if tracker and tracker.is_step_completed(iteration_num, step_key):
+        relax_dir = Path(config["results_root"]) / f"iteration_{iteration_num}" / "MyRelaxStructure"
+        if relax_dir.exists():
+            print(f"[resume] loaded saved merge artifacts for iteration {iteration_num}")
+            return {"success": True, "skipped": True}
+        print(f"[resume] merge artifacts missing for iteration {iteration_num}, resetting progress from {step_key}")
+        reset_steps_from(tracker, iteration_num, step_key)
+
+    return step_merge_results(iteration_num=iteration_num, results_root=config["results_root"], tracker=tracker)
+
+
+def run_document_update_step(
+    iteration_num: int,
+    config: dict[str, Any],
+    extraction_result: dict[str, Any],
+    tracker=None,
+) -> dict[str, Any]:
+    step_key = "document_update"
+    if tracker and tracker.is_step_completed(iteration_num, step_key):
+        cached = load_saved_document_update_result(
+            results_root=config["results_root"],
+            data_root=config.get("data_root", "llm/data"),
+            doc_root=config.get("doc_root", "llm/doc"),
+            iteration_num=iteration_num,
+        )
+        if cached is not None:
+            print(f"[resume] loaded saved document update artifacts for iteration {iteration_num}")
+            return cached
+        print(f"[resume] document update artifacts missing for iteration {iteration_num}, resetting progress from {step_key}")
+        reset_steps_from(tracker, iteration_num, step_key)
+
+    result = step_update_data_and_doc(
+        iteration_num=iteration_num,
+        extraction_result=extraction_result,
+        version=config.get("version", 1),
+        path_config=config.get("path_config"),
+        data_root=config.get("data_root", "llm/data"),
+        results_root=config.get("results_root", "llm/results"),
+        doc_root=config.get("doc_root", "llm/doc"),
+        skip_doc_update=config.get("skip_doc_update", False),
+    )
+    if result.get("success") and tracker:
+        tracker.mark_step_completed(
+            iteration_num,
+            step_key,
+            metadata={
+                "updated_data_path": result.get("updated_data_path"),
+                "updated_doc_path": result.get("updated_doc_path"),
+            },
+        )
     return result
 
 
@@ -100,6 +264,45 @@ def _save_screening_artifacts(
         "novel_pool_csv": _to_csv(novel_pool, "novel_candidates.csv"),
         "websearch_enriched_csv": _to_csv(websearch_enriched_candidates, "websearch_enriched_candidates.csv"),
     }
+
+
+def _resolve_websearch_theory_template(iteration_num: int, config: dict[str, Any]) -> str | None:
+    explicit_template = str(config.get("websearch_theory_template") or "").strip()
+    if explicit_template:
+        return explicit_template
+
+    doc_path: Path | None = None
+    path_config = config.get("path_config")
+    if path_config:
+        try:
+            doc_path = path_config.get_theory_doc_path(iteration_num)
+        except Exception:
+            doc_path = None
+    else:
+        init_doc_path = str(config.get("init_doc_path") or "").strip()
+        doc_root = Path(str(config.get("doc_root") or "llm/doc"))
+        if iteration_num == 1 and init_doc_path:
+            doc_path = Path(init_doc_path)
+        elif iteration_num == 1:
+            doc_path = doc_root / "v0.0.0" / "Theoretical_principle_document.md"
+        else:
+            doc_path = doc_root / f"v0.0.{iteration_num - 1}" / "Theoretical_principle_document.md"
+        if doc_path and not doc_path.is_absolute():
+            doc_path = Path.cwd() / doc_path
+
+    if not doc_path or not doc_path.exists():
+        return None
+
+    try:
+        doc_text = doc_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        print(f"[websearch] failed to read theory doc for query context: {doc_path}, error={exc}")
+        return None
+
+    theory_template = build_websearch_theory_context(doc_text, max_chars=700)
+    if theory_template:
+        print(f"[websearch] loaded round-aware theory context from: {doc_path}")
+    return theory_template or None
 
 
 def _step_input_to_text(step_input: Any) -> str:
@@ -473,13 +676,14 @@ def _run_single_iteration(
         f"novel_top20_count={len(novel_top20)}"
     )
 
+    websearch_theory_template = _resolve_websearch_theory_template(iteration_num, config)
     websearch_enriched_candidates = enrich_topn_with_websearch(
         candidates=novel_top20,
         top_n=int(config.get("websearch_top_n", 5)),
         enabled=bool(config.get("websearch_enabled", True)),
         strategy=str(config.get("websearch_strategy", "hybrid")),
         queries_per_candidate=int(config.get("websearch_queries_per_candidate", 2)),
-        theory_template=config.get("websearch_theory_template"),
+        theory_template=websearch_theory_template,
     )
     websearch_attempted_candidates = min(len(novel_top20), int(config.get("websearch_top_n", 5)))
     total_queries = sum(len(item.get("websearch_queries", [])) for item in websearch_enriched_candidates[:websearch_attempted_candidates])
@@ -502,45 +706,25 @@ def _run_single_iteration(
         websearch_enriched_candidates=websearch_enriched_candidates,
     )
 
-    screen_result = step_ai_evaluation(
+    screen_result = run_ai_evaluation_step(
         iteration_num=iteration_num,
+        config=config,
         candidate_materials=websearch_enriched_candidates,
-        n_select=config["top_k_screen"],
-        path_config=config.get("path_config"),
-        results_root=config["results_root"],
+        tracker=tracker,
     )
 
     if screen_result.get("success"):
         screened_top10 = screen_result.get("selected_materials", [])
         screening_mode = "ai_with_websearch"
-        if tracker:
-            tracker.mark_step_completed(
-                iteration_num,
-                "ai_evaluation",
-                metadata={
-                    "selected_materials": len(screened_top10),
-                    "report_file": screen_result.get("report_file"),
-                },
-            )
     else:
         screened_top10 = novel_top20[: config["top_k_screen"]]
         screening_mode = "heuristic_fallback"
 
-    calculate_result = step_structure_calculation(
+    calculate_result = run_structure_step(
         iteration_num=iteration_num,
+        config=config,
         materials=screened_top10,
-        n_structures=config["n_structures"],
-        max_workers=config["max_workers"],
-        relax_workers=config["relax_workers"],
-        phonon_workers=config["phonon_workers"],
-        pressure=config["pressure"],
-        device=config["device"],
-        gpus=config["gpus"],
-        results_root=config["results_root"],
         tracker=tracker,
-        allow_partial_completion=config.get("allow_partial_structure", False),
-        path_config=config.get("path_config"),
-        relax_timeout_sec=config.get("relax_timeout_sec", 120),
     )
     if not calculate_result.get("success"):
         return {
@@ -550,8 +734,16 @@ def _run_single_iteration(
             "top20": novel_top20,
             "top10": screened_top10,
         }
+    if not calculate_result.get("completed"):
+        return {
+            "success": False,
+            "failed_step": "calculation_incomplete",
+            "calculate": calculate_result,
+            "top20": novel_top20,
+            "top10": screened_top10,
+        }
 
-    merge_result = step_merge_results(iteration_num=iteration_num, results_root=config["results_root"], tracker=tracker)
+    merge_result = run_merge_step(iteration_num=iteration_num, config=config, tracker=tracker)
     if not merge_result.get("success"):
         return {
             "success": False,
@@ -574,15 +766,11 @@ def _run_single_iteration(
     materials_summary = _aggregate_materials_from_results(config["results_root"])
     print(f"[summary] summary files: {materials_summary}")
 
-    theory_result = step_update_data_and_doc(
+    theory_result = run_document_update_step(
         iteration_num=iteration_num,
+        config=config,
         extraction_result=extract_result,
-        version=config.get("version", 1),
-        path_config=config.get("path_config"),
-        data_root=config.get("data_root", "llm/data"),
-        results_root=config.get("results_root", "llm/results"),
-        doc_root=config.get("doc_root", "llm/doc"),
-        skip_doc_update=config.get("skip_doc_update", False),
+        tracker=tracker,
     )
     if not theory_result.get("success"):
         return {
@@ -594,16 +782,6 @@ def _run_single_iteration(
             "extract": extract_result,
             "materials_summary": materials_summary,
         }
-
-    if tracker:
-        tracker.mark_step_completed(
-            iteration_num,
-            "document_update",
-            metadata={
-                "updated_data_path": theory_result.get("updated_data_path"),
-                "updated_doc_path": theory_result.get("updated_doc_path"),
-            },
-        )
 
     return {
         "success": True,
@@ -681,6 +859,19 @@ def build_aslk_steps(
             all_results.append(result)
             compact_result = _compact_iteration_result(result)
             compact_all_results.append(compact_result)
+            try:
+                next_samples, sample_source = extract_initial_samples_from_result(result.get("extract"))
+                if next_samples:
+                    local_samples = next_samples
+                    print(
+                        f"[warm-start] prepared {len(next_samples)} samples for next iteration "
+                        f"(source: {sample_source})"
+                    )
+                elif local_samples and isinstance(result.get("extract"), dict):
+                    local_samples = None
+                    print("[warm-start] no reusable success/stable samples; next iteration falls back to config sampler")
+            except Exception as exc:
+                print(f"[warm-start] failed to prepare next-iteration samples: {exc}")
 
             if isinstance(session_state, dict):
                 session_state[AGNO_STATE_KEYS["last_iteration"]] = iteration

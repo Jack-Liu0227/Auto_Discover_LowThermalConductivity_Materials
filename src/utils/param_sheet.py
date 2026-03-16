@@ -12,7 +12,6 @@ TEMPLATE_ROWS = [
     {"key": "websearch_top_n", "value": "5", "enabled": "1", "notes": "How many top candidates to enrich"},
     {"key": "top_k_bayes", "value": "20", "enabled": "1", "notes": "Bayes top-k candidates"},
     {"key": "top_k_screen", "value": "10", "enabled": "1", "notes": "AI screening top-k"},
-    {"key": "db_candidate_workers", "value": "8", "enabled": "1", "notes": "Parallel workers across candidate dedup"},
     {"key": "samples", "value": "100", "enabled": "1", "notes": "Bayesian sample size"},
     {"key": "n_structures", "value": "5", "enabled": "1", "notes": "Structures generated per material"},
     {"key": "relax_timeout_sec", "value": "120", "enabled": "1", "notes": "Relaxation timeout per task"},
@@ -67,6 +66,13 @@ def _parse_value(raw: str, default: Any) -> Any:
     return text
 
 
+def _is_enabled(raw: str | None) -> bool:
+    text = (raw or "").strip()
+    if text == "":
+        return True
+    return text.lower() in {"1", "true", "yes", "y", "on"}
+
+
 def load_param_overrides(path: str | Path, base_config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     p = Path(path)
     if not p.exists():
@@ -84,6 +90,8 @@ def load_param_overrides(path: str | Path, base_config: dict[str, Any]) -> tuple
         for row in reader:
             key = (row.get("key") or "").strip()
             if not key:
+                continue
+            if not _is_enabled(row.get("enabled")):
                 continue
             if key not in base_config:
                 warnings.append(f"Unknown config key skipped: {key}")

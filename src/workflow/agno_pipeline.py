@@ -57,6 +57,13 @@ def build_workflow(
     return Workflow(**workflow_kwargs)
 
 
+def _build_workflow_run_input(workflow) -> Any:
+    """Use schema-compatible input when Agno workflow input validation is enabled."""
+    if getattr(workflow, "input_schema", None) is not None:
+        return {}
+    return "Start ASLK workflow"
+
+
 def run_workflow(
     config: dict[str, Any],
     tracker,
@@ -75,7 +82,7 @@ def run_workflow(
         db_file=str(Path(config.get("results_root", "llm/results")) / "workflow.db"),
     )
 
-    run_output = workflow.run(input="Start ASLK workflow", stream=False)
+    run_output = workflow.run(input=_build_workflow_run_input(workflow), stream=False)
     content = getattr(run_output, "content", {})
     if isinstance(content, dict):
         return content.get("all_results", [])

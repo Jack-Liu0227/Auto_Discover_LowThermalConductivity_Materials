@@ -27,53 +27,6 @@ logger = logging.getLogger(__name__)
 THEORY_DOC_NAME = "Theoretical_principle_document.md"
 
 
-def learn_from_success_materials(
-    success_csv: str,
-    output_dir: str = "llm/doc/v0.0.2",
-    iteration_num: int = 1,
-    doc_path: str = "llm/doc/v0.0.1/Theoretical_principle_document.md",
-    results_root: str = "results",
-) -> Optional[str]:
-    """
-    Deduplicate success cases and update the theory document.
-    """
-    logger.info("=" * 80)
-    logger.info("Starting success-material learning for iteration %s", iteration_num)
-    logger.info("=" * 80)
-
-    try:
-        csv_dir = os.path.dirname(success_csv)
-        csv_name = os.path.basename(success_csv)
-        base_name, ext = os.path.splitext(csv_name)
-        dedup_csv_path = os.path.join(csv_dir, f"{base_name}_deduped{ext}")
-
-        processed_csv = deduplicate_success_materials(success_csv, dedup_csv_path)
-        target_csv = processed_csv or success_csv
-
-        if processed_csv:
-            logger.info("Using deduplicated success CSV: %s", processed_csv)
-        else:
-            logger.warning("Deduplication failed, using original success CSV: %s", success_csv)
-
-        updated_doc_path = update_theory_from_success(
-            original_doc_path=doc_path,
-            success_csv=target_csv,
-            output_dir=output_dir,
-            iteration_num=iteration_num,
-            results_root=results_root,
-        )
-
-        if updated_doc_path:
-            logger.info("Updated theory document: %s", updated_doc_path)
-            return updated_doc_path
-
-        logger.warning("Theory document update produced no file")
-        return None
-    except Exception as exc:
-        logger.exception("Learning from success materials failed: %s", exc)
-        return None
-
-
 def _resolve_previous_theory_doc(doc_root: str, iteration_num: int) -> str:
     if iteration_num <= 1:
         return f"{doc_root}/v0.0.0/{THEORY_DOC_NAME}"

@@ -34,7 +34,6 @@ aslk/
 |- uv.lock
 |- config/
 |  |- config.yaml
-|  |- llm_config.yaml
 |  |- agentos_params.csv
 |- src/
 |  |- agents/
@@ -195,7 +194,7 @@ python main.py --add-iterations 2
 覆盖采样和筛选参数：
 
 ```bash
-python main.py --samples 150 --n-top-candidates 30 --n-select 10 --n-structures 5
+python main.py --samples 150 --top-k-bayes 30 --top-k-screen 10 --n-structures 5
 ```
 
 指定 GPU 数量：
@@ -270,7 +269,7 @@ python main_bo_only.py
 
 1. 模型训练
 2. BO 候选生成
-3. 从候选中选取前 `n_select` 个进入后续计算
+3. 从候选中选取前 `top_k_screen` 个进入后续计算
 4. 结构生成与下游计算
 5. 合并结果并提取成功材料
 6. 更新下一轮数据集
@@ -292,7 +291,7 @@ python main_bo_only.py --start-iteration 3 --max-iterations 10
 覆盖采样或结构参数：
 
 ```bash
-python main_bo_only.py --samples 150 --n-top-candidates 30 --n-select 10 --n-structures 5
+python main_bo_only.py --samples 150 --top-k-bayes 30 --top-k-screen 10 --n-structures 5
 ```
 
 指定初始数据：
@@ -335,12 +334,6 @@ python main_bo_only.py --reset
 - `tools.crystallm.model_path`
 - `tools.ai4kappa.k_threshold`
 - `tools.mattersim.imaginary_freq_threshold`
-
-### `config/llm_config.yaml`
-
-该文件主要描述 LLM 工作流中的理论文档版本命名方式，例如：
-
-- `llm/doc/v0.0.{version}/Theoretical_principle_document.md`
 
 ## 输出目录说明
 
@@ -431,7 +424,6 @@ python main.py
 - `src/workflow/agno_steps.py`
 - `src/agents/llm_models.py`
 - `config/config.yaml`
-- `config/llm_config.yaml`
 - `src/utils/path_config.py`
 - `src/utils/progress_tracker.py`
 - `data/processed_data.csv`

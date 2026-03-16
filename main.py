@@ -16,9 +16,10 @@ if str(src_path) not in sys.path:
 
 from utils.path_config import PathConfig
 from utils.param_sheet import ensure_param_sheet, load_param_overrides, load_param_prefill, persist_param_values
+from utils.bo_runtime import load_bo_runtime_defaults
 from utils.progress_tracker import ProgressTracker
 from utils.reproducibility import setup_reproducibility
-from workflow.agno_pipeline import run_workflow, serve_agentos
+from utils.workflow_resume import reconcile_progress_with_filesystem
 
 RUN_MODE = "llm"
 RESULTS_ROOT = f"{RUN_MODE}/results"
@@ -31,9 +32,7 @@ DEFAULT_CONFIG = {
     "version": 1,
     "samples": 100,
     "xi": 0.01,
-    "n_select": 10,
     "n_structures": 5,
-    "n_top_candidates": 20,
     "top_k_bayes": 20,
     "top_k_screen": 10,
     "max_workers": 4,
@@ -83,7 +82,7 @@ PARAM_MEMORY_KEYS = [
 ]
 
 
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="ASLK Agno Workflow Runtime")
     parser.add_argument("--runtime", choices=["workflow", "agentos"], default="workflow")
     parser.add_argument("--websearch-top-n", type=int, default=5)
@@ -93,12 +92,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-iterations", type=int, default=None)
     parser.add_argument("--add-iterations", type=int, default=None)
     parser.add_argument("--samples", type=int, default=None)
-    parser.add_argument("--n-select", type=int, default=None)
     parser.add_argument("--n-structures", type=int, default=None)
     parser.add_argument("--phonon-imag-tol", type=float, default=None)
-    parser.add_argument("--n-top-candidates", type=int, default=None)
     parser.add_argument("--top-k-bayes", type=int, default=20)
+    parser.add_argument("--n-top-candidates", dest="top_k_bayes", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--top-k-screen", type=int, default=10)
+    parser.add_argument("--n-select", dest="top_k_screen", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--num-gpus", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--non-deterministic-torch", action="store_true")
@@ -114,7 +113,33 @@ def parse_args() -> argparse.Namespace:
         default="config/agentos_params.csv",
         help="Editable parameter sheet (CSV) used to override workflow config",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def _collect_explicit_cli_dests(parser: argparse.ArgumentParser, argv: list[str]) -> set[str]:
+    option_to_dest: dict[str, str] = {}
+    for action in parser._actions:
+        for option in action.option_strings:
+            option_to_dest[option] = action.dest
+
+    explicit_dests: set[str] = set()
+    for token in argv:
+        if token == "--":
+            break
+        if not token.startswith("-") or token == "-":
+            continue
+        option = token.split("=", 1)[0]
+        dest = option_to_dest.get(option)
+        if dest:
+            explicit_dests.add(dest)
+    return explicit_dests
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_parser()
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(raw_argv)
+    args._explicit_dests = _collect_explicit_cli_dests(parser, raw_argv)
     if args.add_iterations is not None and args.add_iterations <= 0:
         parser.error("--add-iterations must be > 0")
     if args.max_iterations is not None and args.max_iterations <= 0:
@@ -162,19 +187,16 @@ def initialize_environment(path_config: PathConfig) -> None:
 
 def build_config(args: argparse.Namespace) -> dict:
     config = DEFAULT_CONFIG.copy()
+    config.update(load_bo_runtime_defaults())
     if args.samples is not None:
         config["samples"] = args.samples
-    if args.n_select is not None:
-        config["n_select"] = args.n_select
     if args.n_structures is not None:
         config["n_structures"] = args.n_structures
     if args.phonon_imag_tol is not None:
         config["phonon_imag_tol"] = args.phonon_imag_tol
-    if args.n_top_candidates is not None:
-        config["n_top_candidates"] = args.n_top_candidates
 
-    config["top_k_bayes"] = args.n_top_candidates if args.n_top_candidates is not None else args.top_k_bayes
-    config["top_k_screen"] = args.n_select if args.n_select is not None else args.top_k_screen
+    config["top_k_bayes"] = args.top_k_bayes
+    config["top_k_screen"] = args.top_k_screen
 
     if args.num_gpus is not None:
         config["gpus"] = [f"cuda:{i}" for i in range(args.num_gpus)]
@@ -189,6 +211,45 @@ def build_config(args: argparse.Namespace) -> dict:
     config["init_data_path"] = args.init_data
     config["init_doc_path"] = args.init_doc
     return config
+
+
+def apply_explicit_cli_overrides(config: dict, args: argparse.Namespace) -> None:
+    explicit_dests = getattr(args, "_explicit_dests", set())
+    if not explicit_dests:
+        return
+
+    if "samples" in explicit_dests and args.samples is not None:
+        config["samples"] = args.samples
+    if "n_structures" in explicit_dests and args.n_structures is not None:
+        config["n_structures"] = args.n_structures
+    if "phonon_imag_tol" in explicit_dests and args.phonon_imag_tol is not None:
+        config["phonon_imag_tol"] = args.phonon_imag_tol
+    if "top_k_bayes" in explicit_dests:
+        config["top_k_bayes"] = args.top_k_bayes
+    if "top_k_screen" in explicit_dests:
+        config["top_k_screen"] = args.top_k_screen
+    if "num_gpus" in explicit_dests and args.num_gpus is not None:
+        config["gpus"] = [f"cuda:{i}" for i in range(args.num_gpus)]
+    if "seed" in explicit_dests:
+        config["seed"] = int(args.seed)
+    if "non_deterministic_torch" in explicit_dests:
+        config["deterministic_torch"] = not bool(args.non_deterministic_torch)
+    if "allow_partial_structure" in explicit_dests:
+        config["allow_partial_structure"] = args.allow_partial_structure
+    if "websearch_enabled" in explicit_dests:
+        config["websearch_enabled"] = args.websearch_enabled
+    if "websearch_top_n" in explicit_dests:
+        config["websearch_top_n"] = args.websearch_top_n
+    if "init_data" in explicit_dests:
+        config["init_data_path"] = args.init_data
+    if "init_doc" in explicit_dests:
+        config["init_doc_path"] = args.init_doc
+
+
+def _load_runtime_handlers():
+    from workflow.agno_pipeline import run_workflow, serve_agentos
+
+    return run_workflow, serve_agentos
 
 
 def setup_logging() -> Path:
@@ -250,6 +311,7 @@ def main() -> None:
     prefill_values, prefill_warnings = load_param_prefill(param_sheet_path, config)
     sheet_overrides, sheet_warnings = load_param_overrides(param_sheet_path, config)
     config.update(sheet_overrides)
+    apply_explicit_cli_overrides(config, args)
     config["agentos_ui_defaults"] = prefill_values
     config["params_csv_path"] = str(param_sheet_path)
     if args.max_iterations is not None:
@@ -269,6 +331,7 @@ def main() -> None:
     initialize_environment(path_config)
 
     tracker = ProgressTracker(base_dir=RESULTS_ROOT)
+    reconcile_messages = reconcile_progress_with_filesystem(tracker, path_config)
     if args.reset:
         _reset_all_rounds(tracker)
 
@@ -283,6 +346,10 @@ def main() -> None:
     print("=" * 80)
     print(f"log file: {log_file}")
     print(f"params sheet: {param_sheet_path}")
+    if reconcile_messages:
+        print(f"progress reconciled: {len(reconcile_messages)}")
+        for message in reconcile_messages:
+            print(f"reconcile: {message}")
     print(f"params overrides applied: {len(sheet_overrides)}")
     if sheet_overrides:
         print(f"overrides: {sheet_overrides}")
@@ -305,6 +372,7 @@ def main() -> None:
     print(f"execution_range=[{start_iteration} .. {effective_target}]")
     print(f"top-k: bayes={config['top_k_bayes']}, screen={config['top_k_screen']}")
     if args.runtime == "agentos":
+        _, serve_agentos = _load_runtime_handlers()
         print(f"agentos endpoint: http://{args.agentos_host}:{args.agentos_port}")
         print("workflow id: aslk-agentos-workflow")
         print(f"agentos default iterations: {config['agentos_default_iterations']}")
@@ -324,6 +392,7 @@ def main() -> None:
         print("=" * 80)
         return
 
+    run_workflow, _ = _load_runtime_handlers()
     results = run_workflow(
         config=config,
         tracker=tracker,
@@ -349,3 +418,19 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 # python main.py --runtime agentos --agentos-host 0.0.0.0 --agentos-port 8000
+# python .\main.py `
+#   --runtime workflow `
+#   --max-iterations 20 `
+#   --samples 100 `
+#   --n-structures 5 `
+#   --top-k-bayes 20 `
+#   --top-k-screen 10 `
+#   --phonon-imag-tol -0.1 `
+#   --websearch-top-n 10 `
+#   --websearch-enabled `
+#   --num-gpus 1 `
+#   --seed 42 `
+#   --init-data data/processed_data.csv `
+#   --init-doc doc/Theoretical_principle_document.md `
+#   --params-csv config/agentos_params.csv `
+#   --allow-partial-structure

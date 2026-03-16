@@ -140,38 +140,3 @@ class PathConfig:
             'init_data_path': str(self.init_data_path) if self.init_data_path else None,
             'init_doc_path': str(self.init_doc_path) if self.init_doc_path else None,
         }
-
-
-def create_path_config_from_strings(
-    project_root: str,
-    results_root: str,
-    models_root: str,
-    data_root: str,
-    doc_root: Optional[str] = None,
-    init_data_path: Optional[str] = None,
-    init_doc_path: Optional[str] = None
-) -> PathConfig:
-    """
-    从字符串参数创建路径配置（向后兼容）
-    
-    Args:
-        project_root: 项目根目录
-        results_root: 结果目录
-        models_root: 模型目录
-        data_root: 数据目录
-        doc_root: 文档目录 (可选)
-        init_data_path: 初始数据路径 (可选)
-        init_doc_path: 初始文档路径 (可选)
-    
-    Returns:
-        PathConfig 实例
-    """
-    return PathConfig(
-        project_root=Path(project_root),
-        results_root=Path(results_root),
-        models_root=Path(models_root),
-        data_root=Path(data_root),
-        doc_root=Path(doc_root) if doc_root else None,
-        init_data_path=Path(init_data_path) if init_data_path else None,
-        init_doc_path=Path(init_doc_path) if init_doc_path else None
-    )

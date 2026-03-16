@@ -11,5 +11,4 @@ agentos_default_iterations,20,1,Default iterations for AgentOS
 agentos_ws_ping_interval,none,1,Auto-added by runtime memory
 agentos_ws_ping_timeout,none,1,Auto-added by runtime memory
 phonon_imag_tol,-0.1,1,Auto-added by runtime memory
-db_candidate_workers,8,1,Auto-added by runtime memory
 seed,42,0,Auto-added by runtime memory

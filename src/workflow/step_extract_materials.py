@@ -12,13 +12,14 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 from tools.success_extractor import extract_success_materials
+from utils.config_loader import ensure_theory_doc_sync, get_effective_thresholds
 # from agents.deduplicate_success import deduplicate_success_materials - 移至函数内部导入
 
 
 def step_extract_materials(
     iteration_num: int,
-    k_threshold: float = 1.0,
-    imag_tol: float = -0.1,
+    k_threshold: float | None = None,
+    imag_tol: float | None = None,
     results_root: str = "results",
 ):
     """
@@ -36,6 +37,21 @@ def step_extract_materials(
     print("=" * 80)
     print(f"Step 5: Extract Success and Stable Materials (Iteration {iteration_num})")
     print("=" * 80)
+
+    try:
+        ensure_theory_doc_sync()
+        thresholds = get_effective_thresholds()
+    except Exception as exc:
+        print(f"[ERROR] Theory/config sync check failed: {exc}")
+        return {
+            'success': False,
+            'error': f'Theory/config sync check failed: {exc}'
+        }
+
+    if k_threshold is None:
+        k_threshold = thresholds["thermal_conductivity"]
+    if imag_tol is None:
+        imag_tol = thresholds["dynamic_min_frequency"]
     
     # 延迟导入以避免模块冲突
     from agents.deduplicate_success import deduplicate_success_materials
@@ -52,7 +68,7 @@ def step_extract_materials(
     
     print(f"Relaxation Dir: {relax_dir}")
     print(f"Output Dir: {output_dir}")
-    print(f"K Threshold: {k_threshold} W/Km")
+    print(f"K Threshold: {k_threshold} W/(m-K)")
     print(f"Imaginary tolerance (Min_Frequency >=): {imag_tol} THz")
     
     try:
@@ -164,8 +180,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--iteration', type=int, default=1)
-    parser.add_argument('--k-threshold', type=float, default=1.0)
-    parser.add_argument('--imag-tol', type=float, default=-0.1)
+    parser.add_argument('--k-threshold', type=float, default=None)
+    parser.add_argument('--imag-tol', type=float, default=None)
     args = parser.parse_args()
     
     result = step_extract_materials(args.iteration, args.k_threshold, args.imag_tol)

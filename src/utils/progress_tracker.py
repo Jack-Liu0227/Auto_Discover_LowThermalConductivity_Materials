@@ -68,32 +68,11 @@ class ProgressTracker:
                         }
                         changed = True
 
-                    if "document_update" not in round_data:
-                        doc_candidates = [theory_report]
-                        if iteration_num is not None:
-                            doc_candidates.append(
-                                self.base_dir.parent / "doc" / f"v0.0.{iteration_num}" / "Theoretical_principle_document.md"
-                            )
-                        if any(path.exists() for path in doc_candidates):
+                    if "document_update" not in round_data and theory_report.exists():
                             round_data["document_update"] = {
                                 "completed": True,
                                 "timestamp": round_data.get("success_extraction", {}).get("timestamp", ""),
                                 "metadata": {"backfilled": True},
-                            }
-                            changed = True
-
-                    if "merge_results" not in round_data:
-                        success_done = round_data.get("success_extraction", {}).get("completed", False)
-                        update_done = round_data.get("document_update", {}).get("completed", False) or \
-                                      round_data.get("data_update", {}).get("completed", False)
-                        if success_done or update_done:
-                            ts = round_data.get("success_extraction", {}).get("timestamp") or \
-                                 round_data.get("document_update", {}).get("timestamp") or \
-                                 round_data.get("data_update", {}).get("timestamp") or ""
-                            round_data["merge_results"] = {
-                                "completed": True,
-                                "timestamp": ts,
-                                "metadata": {"backfilled": True}
                             }
                             changed = True
                 if changed:

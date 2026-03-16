@@ -45,6 +45,7 @@ try:
     from utils.update_dataset import update_dataset
     from utils.progress_tracker import ProgressTracker
     from utils.path_config import PathConfig
+    from utils.bo_runtime import extract_initial_samples_from_result, load_bo_runtime_defaults
     from utils.reproducibility import setup_reproducibility
 except Exception as e:
     print(f"[FATAL] Failed to import workflow steps: {e}")
@@ -74,7 +75,7 @@ DATA_ROOT = f"{RUN_MODE}/data"
 DEFAULT_CONFIG = {
     'samples': 100,         # 贝叶斯采样数量
     'xi': 0.01,             # EI 探索参数
-    'n_top_candidates': 20, # 贝叶斯优化筛出的候选材料数量（作为后续计算输入）
+    'top_k_bayes': 20,      # 贝叶斯优化筛出的候选材料数量（作为后续计算输入）
     'n_structures': 5,      # 每个组分生成的结构数量
     'max_workers': 4,       # 结构生成并行数
     'relax_workers': 1,     # 弛豫并行数
@@ -83,7 +84,7 @@ DEFAULT_CONFIG = {
     'device': 'cuda',       # 计算设备（向后兼容）
     'gpus': ['cuda:0'],     # GPU 列表，默认单 GPU
     'k_threshold': 1.0,     # 热导率阈值 (W/mK)
-    'n_select': 10,         # 绛涢€夎繘鍏ヨ绠楃殑鏉愭枡鏁伴噺 (鐢ㄤ簬妯℃嫙 LLM 绛涢€夌殑婕忔枟)
+    'top_k_screen': 10,     # 筛选进入结构计算的材料数量
     'seed': 42,             # 全局随机种子
     'seed_stride': 1000,    # 每轮派生种子跨度
     'deterministic_torch': True,
@@ -174,15 +175,17 @@ def parse_args():
     
     # 核心参数
     parser.add_argument('--max-iterations', type=int, default=20,
-                        help='maximum iterations (default: 5)')
+                        help='maximum iterations (default: 20)')
     parser.add_argument('--samples', type=int, default=None,
                         help='number of BO samples per iteration')
-    parser.add_argument('--n-top-candidates', type=int, default=None,
+    parser.add_argument('--top-k-bayes', type=int, default=None,
                         help='number of top BO candidates kept for downstream calculation')
+    parser.add_argument('--n-top-candidates', dest='top_k_bayes', type=int, help=argparse.SUPPRESS)
     parser.add_argument('--n-structures', type=int, default=None,
                         help='number of generated structures per composition')
-    parser.add_argument('--n-select', type=int, default=None,
+    parser.add_argument('--top-k-screen', type=int, default=None,
                         help='number of materials selected for structure calculation')
+    parser.add_argument('--n-select', dest='top_k_screen', type=int, help=argparse.SUPPRESS)
     parser.add_argument('--num-gpus', type=int, default=None,
                         help='number of GPUs to use (e.g. 3 -> cuda:0,1,2)')
     parser.add_argument('--seed', type=int, default=42,
@@ -264,7 +267,7 @@ def run_single_iteration(iteration_num: int, config: dict, tracker: ProgressTrac
             iteration_num=iteration_num,
             xi=config['xi'],
             n_samples=config['samples'],
-            n_top=config['n_top_candidates'],
+            n_top=config['top_k_bayes'],
             initial_samples=initial_samples,
             seed=config.get('seed'),
             seed_stride=config.get('seed_stride', 1000),
@@ -290,9 +293,9 @@ def run_single_iteration(iteration_num: int, config: dict, tracker: ProgressTrac
     step_key_select = "selection_bo"
     selected_materials = []
     
-    n_select = config.get('n_select', 5)
+    top_k_screen = config.get('top_k_screen', 5)
     if candidate_materials:
-        selected_materials = candidate_materials[:n_select]
+        selected_materials = candidate_materials[:top_k_screen]
         print(f"[SELECT] BO candidates {len(candidate_materials)} -> top {len(selected_materials)} for calculation")
 
     # ========== 步骤 3: 结构生成与计算（对应原步骤 4） ==========
@@ -555,11 +558,12 @@ def main():
         
         args = parse_args()
         config = DEFAULT_CONFIG.copy()
+        config.update(load_bo_runtime_defaults())
         
         if args.samples: config['samples'] = args.samples
-        if args.n_top_candidates: config['n_top_candidates'] = args.n_top_candidates
+        if args.top_k_bayes: config['top_k_bayes'] = args.top_k_bayes
         if args.n_structures: config['n_structures'] = args.n_structures
-        if args.n_select: config['n_select'] = args.n_select
+        if args.top_k_screen: config['top_k_screen'] = args.top_k_screen
         if args.num_gpus is not None:
             config['gpus'] = [f'cuda:{i}' for i in range(args.num_gpus)]
             print(f"  GPU config: {config['gpus']}")
@@ -623,45 +627,14 @@ def main():
             extract_res = None
             if 'extract' in results:
                 extract_res = results['extract']
-                # 优先取 success
-                sample_file = None
-                is_stable_fallback = False
-                
-                if extract_res.get('has_success'):
-                     sample_file = extract_res.get('success_deduped_file') or extract_res.get('success_file')
-                elif extract_res.get('has_stable'):
-                     sample_file = extract_res.get('stable_deduped_file') or extract_res.get('stable_file')
-                     is_stable_fallback = True
-                
-                if sample_file and Path(sample_file).exists():
-                    try:
-                        df = pd.read_csv(sample_file)
-                        new_initial_samples = []
-                        for _, row in df.iterrows():
-                             # 处理各种可能的列名
-                            formula = row.get('formula') or row.get('Formula') or row.get('缁勫垎')
-                            kappa = (
-                                row.get('thermal_conductivity')
-                                or row.get('kappa')
-                                or row.get('热导率(W/m·K)')
-                                or row.get('Thermal_Conductivity')
-                                or row.get('鐑鐜?(W/m路K)')  # 兼容历史乱码列名
-                            )
-                            
-                            if formula and kappa is not None:
-                                # 如果是 stable fallback，需要额外过滤 k < 5
-                                if is_stable_fallback and float(kappa) >= 5.0:
-                                    continue
-                                new_initial_samples.append({'formula': formula, 'thermal_conductivity': kappa})
-                                
-                        if new_initial_samples:
-                            source_text = "stable materials (k<5)" if is_stable_fallback else "success materials"
-                            print(f"[INFO] Extracted {len(new_initial_samples)} initial samples for next iteration (source: {source_text})")
-                        else:
-                            print("[WARN] Extracted initial samples are empty (possibly filtered by K threshold).")
-                            
-                    except Exception as e:
-                        print(f"[ERROR] Failed to read initial samples: {e}")
+                try:
+                    new_initial_samples, source_text = extract_initial_samples_from_result(extract_res)
+                    if new_initial_samples:
+                        print(f"[INFO] Extracted {len(new_initial_samples)} initial samples for next iteration (source: {source_text})")
+                    elif extract_res.get('has_success') or extract_res.get('has_stable'):
+                        print("[WARN] Extracted initial samples are empty (possibly filtered by K threshold).")
+                except Exception as e:
+                    print(f"[ERROR] Failed to read initial samples: {e}")
 
             if (not new_initial_samples) and extract_res and (not extract_res.get('has_success')) and (not extract_res.get('has_stable')):
                 fallback_samples = load_fallback_bo_candidates()

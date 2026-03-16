@@ -10,34 +10,28 @@
 
 | Category | Elements | Core Characteristics |
 | :--- | :--- | :--- |
-| **Transition Metals** | Ti, V, Cu, Ag | Multiple oxidation states, electrical conductivity modulation |
-| **Main-group Metals** | In, Ge, Sn, Pb | Heavy atoms, lone pair electrons |
-| **Metalloids** | As, Sb, Bi | Heavy atoms, strong lone pair electrons |
-| **Chalcogens** | S, Se, Te | Mass gradient, covalency modulation |
+| **Transition Metals** | Ti, V, Cu, Ag | Variable coordination, electronic flexibility |
+| **Main-group Metals** | In, Ge, Sn, Pb | Moderate to high mass, soft bonding tendencies |
+| **Metalloids** | As, Sb, Bi | Lone-pair activity, low-symmetry tendency |
+| **Chalcogens** | S, Se, Te | Mass gradient, bonding diversity |
 
 ### 1.2 Selection Principles
 
 #### Theory 1: Heavy Atom Effect
-- **Mechanism**: Phonon group velocity is proportional to the $1/\sqrt{M}$. Here $M$ is the mass.
-- **Target Elements**: Pb, Bi, Sb, Te.
-- **Effect**: Reduces lattice thermal conductivity.
+- **Mechanism**: Higher atomic mass lowers phonon group velocity.
+- **Design cue**: Favor Pb, Bi, Sb, and Te when mass can be increased without sacrificing stability.
 
 #### Theory 2: Lone Pair Electron Effect
-- **Mechanism**: Asymmetric distribution of $ns^2$ electrons enhances anharmonicity.
-- **Active Ions**: Pb²⁺, Bi³⁺, Sb³⁺, Sn²⁺.
-- **Effect**: Weakens chemical bonds, enhances phonon scattering and reduce phonon relaxation time.
+- **Mechanism**: Active ns^2 lone pairs increase lattice anharmonicity.
+- **Design cue**: Prioritize Pb2+, Sn2+, Sb3+, and Bi3+ in distorted or low-symmetry environments.
 
 #### Theory 3: Mass Contrast Scattering
-- **Mechanism**: Large mass differences between atoms enhance scattering.
-- **Strategy**: Heavy-Light element pairing (e.g., Pb-S, Bi-Te).
-- **Parameter**: $\Gamma_M = \sum f_i(1 - M_i/M_{avg})^2$.
+- **Mechanism**: Large mass differences broaden phonon scattering across frequencies.
+- **Design cue**: Combine heavy and light elements within the same stable framework.
 
 #### Theory 4: Known Material Families
-- **Bi-Te System**: Layered structure.
-- **Cu-Se System**: Superionic conductors.
-- **Sn-Se System**: Strong anharmonicity.
-- **Pb-Te System**: Classic thermoelectric materials.
-- **Ag-Sb-Te System**: Complex structures.
+- **Mechanism**: Proven low-kappa families offer reliable starting points for screening.
+- **Design cue**: Use Bi-Te, Cu-Se, Sn-Se, Pb-Te, and Ag-Sb-Te systems as baseline references.
 
 ---
 
@@ -45,126 +39,102 @@
 
 ### 2.1 Basic Thermal Conductivity Equation
 
-```
-κ_L = (1/3) ∫ C_v(ω) · v_g²(ω) · τ(ω) dω
+```math
+\kappa_L \approx \frac{1}{3} \int C_v(\omega) v_g^2(\omega) \tau(\omega)\, d\omega
 ```
 
-**Design Core**: Enhance phonon scattering, reduce phonon group velocity, and reduce relaxation time ($\tau$).
-
----
+**Design target**: Reduce phonon group velocity `v_g` and phonon lifetime `tau` while keeping the lattice stable.
 
 ### 2.2 Four Major Phonon Scattering Mechanisms
 
 #### Mechanism 1: Mass Contrast Scattering
-- **Principle**: Mass differences scatter phonons.
-- **Parameter**: $\Gamma_M = \sum f_i(1 - M_i/M_{avg})^2$.
-- **Strategy**: Maximize mass difference increases the acoustic-optical phonon branches gap.
+- **Principle**: Mass differences disrupt phonon transport.
+- **Design cue**: Maximize useful heavy-light contrast inside the same compound.
 
 #### Mechanism 2: Lattice Distortion Scattering
-- **Principle**: Atomic radius differences create strain fields.
-- **Parameter**: $\Gamma_S = \sum f_i(1 - r_i/r_{avg})^2$.
-- **Strategy**: Moderate mismatch, such as the (5%,15%) range.
+- **Principle**: Local strain fields scatter phonons.
+- **Design cue**: Favor moderate atomic-size mismatch and distorted coordination.
 
-#### Mechanism 3: Resonance Scattering
-- **Principle**: Weak bonding between atoms resonates with phonons.
-- **Applicable Structures**: Cage structures (Skutterudite, Clathrate).
-- **Strategy**: Fill voids with heavy atoms ("Rattlers") generate flat bands in acoustic phonon modes.
+#### Mechanism 3: Resonance or Soft-Bond Scattering
+- **Principle**: Weakly bound atoms or soft modes add localized scattering channels.
+- **Design cue**: Prefer soft sublattices, rattling motifs, or weak interlayer bonding when stable.
 
-#### Mechanism 4: Interface Scattering
-- **Principle**: Interfaces scatter long-wavelength phonons.
-- **Applicable Structures**: Layered structures, nanocomposites, superlattices.
-- **Characteristics**: Anisotropic thermal conductivity.
-
----
+#### Mechanism 4: Interface or Layer Scattering
+- **Principle**: Structural interfaces suppress long-wavelength phonons.
+- **Design cue**: Favor layered, anisotropic, or internally heterogeneous frameworks.
 
 ### 2.3 Lattice Anharmonicity Theory
 
-**Core**: Strong anharmonicity → Enhanced phonon-phonon scattering → Shortened phonon lifetime.
+**Core idea**: Strong anharmonicity shortens phonon lifetime and lowers lattice thermal conductivity.
 
-**Three Major Sources**:
-
-1.  **Weak Chemical Bonds**
-    - Van Der Waals bonds.
-    - Weak interlayer interactions in layered structures.
-
-2.  **Lone Pair Electrons**
-    - Asymmetric distribution of $ns^2$ lone pairs.
-    - Elements: Pb²⁺, Bi³⁺, Sb³⁺.
-
-3.  **Low Symmetry Structures**
-    - Reduces phonon group velocity.
-    - Increases Phonon Density of States (PDOS).
-
----
+**Primary sources**:
+1. **Weak bonds**: Soft or weakly coupled bonds reduce restoring forces.
+2. **Lone-pair electrons**: Pb2+, Sn2+, Sb3+, and Bi3+ often drive local asymmetry.
+3. **Low symmetry**: Distorted lattices lower phonon coherence and raise scattering.
 
 ### 2.4 Complex Structure Effects
 
-**Principle**: Complex structure → Low phonon group velocity.
+**Why it matters**: Complex, low-symmetry structures increase optical branches and reduce coherent heat transport.
 
-**Structure Types**:
-- **Multi-atom Primitive Cell**: Large number of atoms per unit cell.
-- **Layered Structure**: Anisotropy.
-- **Cage Structure**: Resonance scattering.
-- **Superlattice**: Periodic interfaces.
+**Favorable traits**:
+- Multi-atom primitive cells
+- Layered or anisotropic frameworks
+- Distorted coordination environments
 
 ---
 
 ## 3. Crystal Stability Criteria
 
-### 3.1 Thermal Dynamical Stability
-- **Criterion**: $\omega^2(q) > 0$ (No imaginary frequencies in the phonon spectrum).
-- **Significance**: Stable lattice vibrations.
+### 3.1 Dynamical Stability
+- **Criterion**: No imaginary frequencies in the phonon spectrum.
+- **Significance**: The lattice can sustain stable vibrations.
 
 ### 3.2 Thermodynamic Stability
-- **Criterion**: $\Delta H_f < 0$ (Negative formation energy).
-- **Significance**: Material does not spontaneously decompose.
+- **Criterion**: Negative formation energy or a clearly competitive decomposition energy.
+- **Significance**: The material is not strongly driven to decompose.
 
 ### 3.3 Mechanical Stability
-- **Criterion**: Elastic constants satisfy Born criteria.
-- **Significance**: Material possesses resistance to deformation.
+- **Criterion**: Elastic constants satisfy the relevant Born stability conditions.
+- **Significance**: The structure can resist small mechanical perturbations.
+
+### 3.4 Workflow Search Prior (Implementation Note)
+
+> This note records the current workflow search prior. It is an implementation prior for the search loop, not a universal design law.
+
+- **Element set**: Same 14-element library defined in Section 1.1.
+- **Composition prior**: ternary `A-B-Ch`
+- **Max atoms**: `20`
+- **Success threshold**: `k < 1.0 W/(m-K)`
+- **Dynamical stability threshold**: `Min_Frequency >= -0.1 THz`
 
 ---
 
 ## 4. Success Case Library (Dynamic Update Zone)
 
-> **Update Mechanism Explanation**:
-> - This section records material cases verified by experiments or AI screening.
-> - After each iteration, update according to the following rules:
->   1.  **New Cases**: Materials experimentally verified with thermal conductivity < threshold.
->   2.  **Case Format**: Chemical Formula | Thermal Conductivity | Key Theoretical Features.
->   3.  **Theory Extraction**: Extract new patterns from cases and feed back into Sections 1-3.
->   4.  **Weight Adjustment**: Prioritize high-frequency successful features.
+> This section is the dynamic update zone for successful cases and theory revisions.
 
-### 4.1 Initial Reference Cases (Literature Benchmarks)
+### 4.1 Success Case Theory Summary (Iterative Update)
 
-Theoretical features of successful materials based on literature:
+> Update this subsection with concise cross-case patterns extracted from verified successful materials.
 
-- **Bi₂Te₃** ($\kappa = 0.87$ W/m·K): Layered structure + Lone pair electrons + Heavy atoms.
-- **SnSe** ($\kappa = 0.73$ W/m·K): Layered structure + Lone pair electrons + Low symmetry.
-- **Cu₂Se** ($\kappa = 0.67$ W/m·K): Superionic conductor + Mass contrast.
+**Current Status**: Initial version; no iterative evidence has been added yet.
 
-### 4.2 Success Case Theory Summary (Iterative Update)
+**Template fields**:
+- **Dominant element systems**:
+- **Mass-contrast pattern**:
+- **Lone-pair or bonding pattern**:
+- **Structural pattern**:
 
-> **Update Mechanism**: After each iteration, extract common patterns from verified successful materials and update this section as a theoretical summary.
+### 4.2 Theory Optimization Record
 
-**Current Status**: Initial version, pending update after the first iteration.
+> Update this subsection with theory changes that should affect later screening decisions.
 
-**Expected Content Examples**:
-- Element Combination Patterns: Certain element pairs have high success rates.
-- Mass Contrast Range: Distribution characteristics of $\Gamma_M$ in successful materials.
-- Lone Pair Effect: Relationship between the proportion of lone pair elements and success rate.
-- Structural Features: Common crystal structure characteristics of successful materials.
+**Current Status**: Initial version; no optimization adjustments have been recorded yet.
 
-### 4.3 Theory Optimization Record
-
-> **Update Mechanism**: Record theoretical adjustments based on case feedback.
-
-**Current Status**: Initial version, pending update after the first iteration.
-
-**Expected Content Examples**:
-- Discovery: Certain element combination pattern → Adjust element priority.
-- Discovery: Certain structural feature → Update screening weights.
-- Discovery: Certain failure mode → Add exclusion rules.
+**Template fields**:
+- **Priority adjustment**:
+- **Screening filter adjustment**:
+- **Exclusion or caution rule**:
 
 ---
 
@@ -172,24 +142,24 @@ Theoretical features of successful materials based on literature:
 
 ### 5.1 Core Evaluation Parameters
 
-1.  **Mass Contrast** ($\Gamma_M$): The larger, the better.
-2.  **Lone Pair Electrons**: Prioritize Pb, Bi, Sb, Sn.
-3.  **Average Mass**: Preference for heavy atoms.
-4.  **Electronegativity Difference**: for example, $0.4 < \Delta\chi < 2.0$.
+1. **Mass contrast** (`Gamma_M`): Larger is usually better.
+2. **Lone-pair activity**: Prefer compounds containing Pb, Sn, Sb, or Bi when chemically reasonable.
+3. **Average atomic mass**: Heavier frameworks are preferred when stability is preserved.
+4. **Bonding balance**: Favor compositions with neither fully metallic nor overly rigid bonding.
 
 ### 5.2 Screening Decision
 
-```
-Lone pair element + High mass contrast → Recommended
-Lone pair element OR Cu/Ag → Moderate
-Others → Low Potential
+```text
+Heavy element + lone-pair activity + strong mass contrast -> High potential
+Any two of the above -> Medium potential
+Otherwise -> Low priority unless supported by structure
 ```
 
 ### 5.3 Confidence Assessment
 
-- **High Confidence**: Belongs to known family + Lone pair electrons + High mass contrast.
-- **Moderate Confidence**: Fits partial features + New element combination.
-- **Low Confidence**: Theoretical features not obvious + Stability questionable.
+- **High confidence**: Matches known families or multiple low-kappa mechanisms.
+- **Moderate confidence**: Matches part of the theory but lacks strong supporting signals.
+- **Low confidence**: Weak theoretical support or unresolved stability concerns.
 
 ---
 
@@ -197,20 +167,20 @@ Others → Low Potential
 
 ### 6.1 Four Theoretical Pillars
 
-1.  **Heavy Atom Effect** → Reduces phonon group velocity.
-2.  **Lone Pair Electron Effect** → Enhances anharmonicity.
-3.  **Mass Contrast Scattering** → Enhances phonon scattering.
-4.  **Complex Structure** → Multiple scattering mechanisms.
+1. **Heavy atom effect** -> lowers phonon group velocity.
+2. **Lone-pair electron effect** -> increases anharmonicity.
+3. **Mass-contrast scattering** -> broadens phonon scattering.
+4. **Complex structure effect** -> reduces coherent heat transport.
 
 ### 6.2 Material Design Checklist
 
-Check items one by one when evaluating materials:
+Check the following when evaluating candidates:
 
-- [ ] Contains heavy elements (Pb, Bi, Sb, Te).
-- [ ] Contains lone pair electron elements.
-- [ ] Significant mass contrast (High $\Gamma_M$).
-- [ ] Belongs to a known low thermal conductivity family.
-- [ ] Moderate structural complexity.
-- [ ] Dynamically stable (No imaginary frequencies).
-- [ ] Thermodynamically stable ($\Delta H_f < 0$).
-- [ ] Reasonable electronegativity and radius matching.
+- [ ] Contains heavy elements such as Pb, Bi, Sb, or Te
+- [ ] Contains lone-pair-active cations when chemically plausible
+- [ ] Provides meaningful heavy-light mass contrast
+- [ ] Fits a known or adjacent low-kappa family
+- [ ] Shows low symmetry or structural complexity
+- [ ] Is dynamically stable
+- [ ] Is thermodynamically competitive
+- [ ] Has a chemically reasonable bonding environment

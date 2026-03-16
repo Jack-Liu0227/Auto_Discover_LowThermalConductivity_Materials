@@ -34,7 +34,6 @@ aslk/
 |- uv.lock
 |- config/
 |  |- config.yaml
-|  |- llm_config.yaml
 |  |- agentos_params.csv
 |- src/
 |  |- agents/
@@ -195,7 +194,7 @@ python main.py --add-iterations 2
 Override BO or screening parameters:
 
 ```bash
-python main.py --samples 150 --n-top-candidates 30 --n-select 10 --n-structures 5
+python main.py --samples 150 --top-k-bayes 30 --top-k-screen 10 --n-structures 5
 ```
 
 Set GPU count:
@@ -270,7 +269,7 @@ The BO-only workflow performs:
 
 1. model training
 2. BO candidate generation
-3. top-`n_select` candidate selection for downstream calculation
+3. top-`top_k_screen` candidate selection for downstream calculation
 4. structure generation and calculation
 5. result merging and success extraction
 6. dataset update
@@ -292,7 +291,7 @@ python main_bo_only.py --start-iteration 3 --max-iterations 10
 Override sampling or structure parameters:
 
 ```bash
-python main_bo_only.py --samples 150 --n-top-candidates 30 --n-select 10 --n-structures 5
+python main_bo_only.py --samples 150 --top-k-bayes 30 --top-k-screen 10 --n-structures 5
 ```
 
 Use a custom initial dataset:
@@ -335,12 +334,6 @@ Fields that are especially relevant to current runs:
 - `tools.crystallm.model_path`
 - `tools.ai4kappa.k_threshold`
 - `tools.mattersim.imaginary_freq_threshold`
-
-### `config/llm_config.yaml`
-
-Documents the theory-document naming and version layout used by the LLM workflow, for example:
-
-- `llm/doc/v0.0.{version}/Theoretical_principle_document.md`
 
 ## Output Layout
 
@@ -431,7 +424,6 @@ If you want to extend the documentation further, the most relevant files are:
 - `src/workflow/agno_steps.py`
 - `src/agents/llm_models.py`
 - `config/config.yaml`
-- `config/llm_config.yaml`
 - `src/utils/path_config.py`
 - `src/utils/progress_tracker.py`
 - `data/processed_data.csv`

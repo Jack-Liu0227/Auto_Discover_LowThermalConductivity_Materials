@@ -90,3 +90,4 @@ data/check_elements.py
 .pytest_cache/
 llm_old/
 .env
+tests/

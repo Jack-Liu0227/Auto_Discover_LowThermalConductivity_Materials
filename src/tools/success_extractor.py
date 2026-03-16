@@ -79,6 +79,53 @@ class SuccessMaterialsExtractor:
         cls[no_imag] = "strict_stable_by_flag"
         return dyn_stable, cls
 
+    def _merge_phonon_results_if_needed(self, df: pd.DataFrame, csv_file: Path, rel: Path) -> pd.DataFrame:
+        needed_cols = [
+            "Has_Imaginary_Freq",
+            "Min_Frequency",
+            "Gamma_Min_Optical",
+            "Gamma_Max_Acoustic",
+        ]
+        if all(col in df.columns for col in needed_cols):
+            return df
+
+        phonon_csv = csv_file.parent / "relax_phonon_results.csv"
+        if not phonon_csv.exists():
+            phonon_csv = csv_file.parent / "phonon_results.csv"
+        if not phonon_csv.exists():
+            logger.warning("%s: missing phonon metadata CSV, cannot backfill stability columns", rel)
+            return df
+
+        try:
+            phonon_df = pd.read_csv(phonon_csv, encoding="utf-8-sig")
+        except Exception as exc:
+            logger.warning("%s: failed reading %s: %s", rel, phonon_csv.name, exc)
+            return df
+
+        join_keys = [key for key in ("CIF_File", "Structure_ID") if key in df.columns and key in phonon_df.columns]
+        if not join_keys:
+            logger.warning("%s: no common key to join %s", rel, phonon_csv.name)
+            return df
+
+        available_cols = [col for col in needed_cols if col in phonon_df.columns]
+        if not available_cols:
+            logger.warning("%s: %s has no stability columns to backfill", rel, phonon_csv.name)
+            return df
+
+        right_cols = join_keys + available_cols
+        left_existing = set(df.columns)
+        merged = df.merge(phonon_df[right_cols], on=join_keys, how="left", suffixes=("", "__phonon"))
+        for col in available_cols:
+            phonon_col = f"{col}__phonon" if col in left_existing else col
+            if col not in left_existing:
+                continue
+            if phonon_col in merged.columns:
+                merged[col] = merged[col].where(merged[col].notna(), merged[phonon_col])
+                merged.drop(columns=[phonon_col], inplace=True, errors="ignore")
+
+        logger.info("%s: backfilled stability columns from %s using %s", rel, phonon_csv.name, ",".join(join_keys))
+        return merged
+
     def extract(self) -> Optional[str]:
         logger.info("=" * 80)
         logger.info("Start extracting success/stable materials")
@@ -130,6 +177,7 @@ class SuccessMaterialsExtractor:
                 continue
 
             df = df.copy()
+            df = self._merge_phonon_results_if_needed(df, csv_file, rel)
             df["_dyn_stable"], df["_stability_class"] = self._classify_stability(df)
 
             mask_success = df["_dyn_stable"] & (pd.to_numeric(df[kappa_col], errors="coerce") < self.k_threshold)

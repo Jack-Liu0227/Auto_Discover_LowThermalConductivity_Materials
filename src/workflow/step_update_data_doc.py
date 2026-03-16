@@ -53,6 +53,11 @@ def step_update_data_and_doc(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as handle:
             handle.write(message)
+
+    def _write_doc_update_report(output_path: Path, title: str, body: str) -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as handle:
+            handle.write(f"# {title}\n\n{body}\n")
     
     has_success = extraction_result.get('has_success', False)
     has_stable = extraction_result.get('has_stable', False)
@@ -328,18 +333,32 @@ def step_update_data_and_doc(
                 print(f"[WARN] No previous doc found, falling back to v0.0.0")
         
         if prev_doc.exists():
-            doc_output_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(prev_doc, doc_output_path)
-            print(f"[SUCCESS] Copied doc: {prev_doc} -> {doc_output_path}")
-            updated_doc_path = str(doc_output_path)
+            print(f"[SUCCESS] Reusing previous doc: {prev_doc}")
+            updated_doc_path = str(prev_doc)
+            _write_doc_update_report(
+                doc_output_path,
+                "Theory Document Update Skipped",
+                (
+                    f"Iteration {iteration_num} reused the previous theory document.\n\n"
+                    f"Previous doc: `{prev_doc}`\n\n"
+                    f"Reason: no success materials were available for LLM-based theory update."
+                ),
+            )
         else:
             print(f"[WARN] Previous doc not found: {prev_doc}")
             fallback_doc = project_root / "assets" / "theory.md"
             if fallback_doc.exists():
-                doc_output_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(fallback_doc, doc_output_path)
-                print(f"[SUCCESS] Copied fallback doc: {fallback_doc} -> {doc_output_path}")
-                updated_doc_path = str(doc_output_path)
+                print(f"[SUCCESS] Reusing fallback doc: {fallback_doc}")
+                updated_doc_path = str(fallback_doc)
+                _write_doc_update_report(
+                    doc_output_path,
+                    "Theory Document Update Fallback",
+                    (
+                        f"Iteration {iteration_num} fell back to the bundled theory template.\n\n"
+                        f"Fallback doc: `{fallback_doc}`\n\n"
+                        f"Reason: previous versioned theory document was not found."
+                    ),
+                )
     
     # === 6.3 Sync to doc/v0.0.{iteration_num} ===
     if updated_doc_path:
@@ -359,6 +378,7 @@ def step_update_data_and_doc(
             print(f"[SUCCESS] Synced to versioned doc: {versioned_doc_path}")
         else:
             print(f"[INFO] Doc already at versioned location: {versioned_doc_path}")
+        updated_doc_path = str(versioned_doc_path)
     
     return {
         'success': True,

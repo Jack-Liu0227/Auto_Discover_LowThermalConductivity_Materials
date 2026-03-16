@@ -7,6 +7,7 @@ from typing import Any
 
 from agno.agent import Agent
 
+from agents.ai_client import AIClient
 from database import query_aflow, query_materials_project, query_oqmd
 from workflow.step_ai_evaluation import step_ai_evaluation
 
@@ -24,6 +25,32 @@ except Exception:
 DEFAULT_GENERIC_THEORY_QUERY = (
     "low lattice thermal conductivity mechanisms phonon scattering "
     "anharmonicity mass disorder lone pair rattling review"
+)
+WEBSEARCH_QUERY_REWRITE_MAX_CHARS = 220
+WEBSEARCH_OFFTOPIC_TERMS = (
+    "optical",
+    "photon",
+    "photonic",
+    "waveguide",
+    "switch",
+    "refractive",
+    "nonlinear",
+    "optoelectronic",
+    "device applications",
+    "applications",
+    "processing",
+    "history",
+)
+WEBSEARCH_MECHANISM_TERMS = (
+    "thermal conductivity",
+    "lattice thermal conductivity",
+    "phonon",
+    "anharm",
+    "rattling",
+    "lone pair",
+    "distortion",
+    "mass disorder",
+    "heat transport",
 )
 
 
@@ -427,17 +454,115 @@ def build_aggregated_websearch_query(
 ) -> str:
     effective = candidates[: max(1, top_n)]
     formulas = [f for f in (_extract_formula(item) for item in effective) if f]
-    elements: set[str] = set()
-    for formula in formulas:
-        for elem in _extract_elements_from_formula(formula):
-            elements.add(elem)
-    formula_part = ", ".join(formulas[:8])
-    element_part = " ".join(sorted(elements)[:10])
-    generic = build_generic_theory_query(theory_template)
-    return (
-        f"{generic}; candidate formulas: {formula_part}; "
-        f"elements: {element_part}; identify common low thermal conductivity mechanisms"
-    ).strip()
+    formula_part = ", ".join(formulas[:4])
+    theory_focus = build_generic_theory_query(theory_template)
+    theory_focus = re.sub(r"\s+", " ", theory_focus).strip()
+    if len(theory_focus) > 220:
+        theory_focus = theory_focus[:217].rstrip() + "..."
+    query_parts = [
+        f"current theory focus: {theory_focus}" if theory_focus else "",
+        f"candidate formulas: {formula_part}" if formula_part else "",
+        "identify the most relevant low thermal conductivity mechanisms for this round",
+    ]
+    return "; ".join(part for part in query_parts if part).strip()
+
+
+def _truncate_query(text: str, limit: int = WEBSEARCH_QUERY_REWRITE_MAX_CHARS) -> str:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(limit - 3, 0)].rstrip(" ;,") + "..."
+
+
+def _parse_json_object(text: str) -> dict[str, Any] | None:
+    payload = str(text or "").strip()
+    if not payload:
+        return None
+    try:
+        data = json.loads(payload)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", payload, re.DOTALL)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _is_on_topic_unified_query(query: str) -> bool:
+    lowered = str(query or "").lower()
+    if not lowered.strip():
+        return False
+    if not any(term in lowered for term in WEBSEARCH_MECHANISM_TERMS):
+        return False
+    if any(term in lowered for term in WEBSEARCH_OFFTOPIC_TERMS):
+        return False
+    return True
+
+
+def rewrite_websearch_query(
+    draft_query: str,
+    formulas: list[str],
+    theory_template: str | None = None,
+    ai_client: AIClient | None = None,
+) -> str:
+    cleaned_draft = _truncate_query(draft_query)
+    if not cleaned_draft:
+        return ""
+
+    theory_focus = _truncate_query(build_generic_theory_query(theory_template), limit=320)
+    formula_text = ", ".join(formulas[:4]) if formulas else "N/A"
+    client = ai_client or AIClient()
+    model_id = client.get_default_model("workflow")
+    prompt = f"""Rewrite the draft web search query into one compact search-ready query.
+
+Return JSON only:
+{{
+  "unified_query": "..."
+}}
+
+Constraints:
+- One sentence only
+- Max {WEBSEARCH_QUERY_REWRITE_MAX_CHARS} characters
+- Keep it suitable for actual web search
+- Preserve this round's theory focus and representative formulas
+- Keep the query focused on low lattice thermal conductivity mechanisms
+- Prefer terms such as phonon scattering, anharmonicity, rattling, lone-pair distortion, mass disorder, heat transport
+- Exclude unrelated angles such as optical properties, nonlinear optics, refractive index, photonic devices, generic applications, synthesis history, or processing
+- No markdown
+- No explanation
+
+Theory focus:
+{theory_focus or "N/A"}
+
+Representative formulas:
+{formula_text}
+
+Draft query:
+{cleaned_draft}
+"""
+    try:
+        response = client.chat(
+            prompt=prompt,
+            model_id=model_id,
+            temperature=client.get_default_temperature("workflow"),
+            max_tokens=300,
+        )
+        parsed = _parse_json_object(response)
+        unified = _truncate_query(str((parsed or {}).get("unified_query") or ""))
+        if unified and _is_on_topic_unified_query(unified):
+            return unified
+        if unified:
+            print(f"[websearch] query rewrite rejected as off-topic: {unified}")
+    except Exception as exc:
+        print(f"[websearch] query rewrite failed, fallback to draft query: {exc}")
+
+    return cleaned_draft
 
 
 def enrich_topn_with_websearch(
@@ -465,12 +590,20 @@ def enrich_topn_with_websearch(
 
     enriched = [dict(item) for item in candidates]
     effective_top_n = min(len(enriched), max(1, top_n))
-    aggregate_query = build_aggregated_websearch_query(
+    draft_query = build_aggregated_websearch_query(
         candidates=enriched,
         top_n=effective_top_n,
         theory_template=theory_template,
     )
-    print(f"[websearch] aggregate mode, top_n={effective_top_n}, query={aggregate_query}")
+    formulas = [f for f in (_extract_formula(item) for item in enriched[:effective_top_n]) if f]
+    aggregate_query = rewrite_websearch_query(
+        draft_query=draft_query,
+        formulas=formulas,
+        theory_template=theory_template,
+    )
+    print(
+        f"[websearch] aggregate mode, top_n={effective_top_n}, draft_query={draft_query}, unified_query={aggregate_query}"
+    )
     raw_summary, sources, err = _invoke_websearch(aggregate_query)
     condensed_summary = _condense_body_texts(raw_summary)
     success_count = 0 if err else 1
