@@ -45,6 +45,7 @@ class MaterialEvaluator:
         n_select: int = 5,
         iteration_num: int = 1,
         results_root: str = "results",
+        extra_instructions: str | None = None,
     ) -> Dict:
         print("\n" + "=" * 80)
         print("Material Evaluation")
@@ -58,7 +59,12 @@ class MaterialEvaluator:
 
         materials_info = self._format_materials_info(top_materials)
         websearch_info = self._format_websearch_summary(top_materials, iteration_num)
-        prompt = self._build_evaluation_prompt(materials_info, websearch_info, n_select)
+        prompt = self._build_evaluation_prompt(
+            materials_info,
+            websearch_info,
+            n_select,
+            extra_instructions=extra_instructions,
+        )
 
         input_file = self._save_input(prompt, iteration_num, results_root)
         print(f"[evaluator] saved llm input: {input_file}")
@@ -377,7 +383,20 @@ Errors:
             errors=errors,
         )
 
-    def _build_evaluation_prompt(self, materials_info: str, websearch_info: str, n_select: int) -> str:
+    def _build_evaluation_prompt(
+        self,
+        materials_info: str,
+        websearch_info: str,
+        n_select: int,
+        extra_instructions: str | None = None,
+    ) -> str:
+        extra_instruction_block = ""
+        if extra_instructions:
+            extra_instruction_block = f"""
+
+4. **Additional Selection Constraints**:
+{extra_instructions}
+"""
         prompt = f"""# Low Thermal Conductivity Material Evaluation Task
 
 ## Theoretical Principles Document
@@ -413,6 +432,7 @@ You are a materials science expert. Based on the above theoretical principles do
 2. **Comprehensive Judgment Principles**:
    - Theoretical principle compliance > acquisition function value (EI/Score).
    - Provide explicit physical-mechanism reasoning.
+{extra_instruction_block}
 
 3. **Output Format**: Return JSON strictly in this schema:
 

@@ -140,7 +140,12 @@ def reconcile_progress_with_filesystem(tracker, path_config) -> list[str]:
         # previous round's dataset. Resume validation must follow the same
         # artifact convention or it will incorrectly reset completed rounds.
         model_iteration = max(iteration_num - 1, 0)
-        model_path = models_root / f"iteration_{model_iteration}" / "gpr_thermal_conductivity.joblib"
+        model_candidates = [
+            models_root / f"iteration_{model_iteration}" / "gpr_thermal_conductivity.joblib",
+            # Backward compatibility for older runs/tests that stored the model
+            # under the same iteration number instead of iteration-1.
+            models_root / f"iteration_{iteration_num}" / "gpr_thermal_conductivity.joblib",
+        ]
         all_samples_path = results_root / f"iteration_{iteration_num}" / "selected_results" / "all_samples.csv"
         ai_selected_path = results_root / f"iteration_{iteration_num}" / "selected_results" / "ai_selected_materials.csv"
         processed_dir = results_root / f"iteration_{iteration_num}" / "processed_structures"
@@ -149,7 +154,7 @@ def reconcile_progress_with_filesystem(tracker, path_config) -> list[str]:
         versioned_doc = doc_root / f"v0.0.{iteration_num}" / THEORY_DOC_NAME if doc_root else None
 
         round_data = tracker.progress.get(key, {})
-        if round_data.get("train_model", {}).get("completed") and not model_path.exists():
+        if round_data.get("train_model", {}).get("completed") and not any(path.exists() for path in model_candidates):
             reset_steps = reset_steps_from(tracker, iteration_num, "train_model")
             messages.append(f"iteration_{iteration_num}: reset {reset_steps} because model artifact is missing")
             continue

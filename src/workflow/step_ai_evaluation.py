@@ -142,6 +142,7 @@ def step_ai_evaluation(
     results_root: str = "llm/results",
     doc_root: str = "llm/doc",
     init_doc_path: str = None,
+    extra_instructions: str | None = None,
 ):
     """
     Step 3: AI material evaluation.
@@ -188,6 +189,7 @@ def step_ai_evaluation(
             n_select=n_select,
             iteration_num=iteration_num,
             results_root=_results_root,
+            extra_instructions=extra_instructions,
         )
 
         report_path = save_evaluation_report(evaluation_result)

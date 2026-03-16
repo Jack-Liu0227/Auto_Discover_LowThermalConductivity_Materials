@@ -91,3 +91,4 @@ data/check_elements.py
 llm_old/
 .env
 tests/
+bo_ai_guarded/
