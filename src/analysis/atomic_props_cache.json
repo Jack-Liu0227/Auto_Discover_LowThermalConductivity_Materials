@@ -1,0 +1,946 @@
+{
+  "H": {
+    "mass": 1.00794,
+    "radius": 0.25,
+    "eneg": 2.2,
+    "group": 1.0,
+    "period": 1.0,
+    "valence": 1.0
+  },
+  "He": {
+    "mass": 4.002602,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 18.0,
+    "period": 1.0,
+    "valence": 8.0
+  },
+  "Li": {
+    "mass": 6.941,
+    "radius": 1.45,
+    "eneg": 0.98,
+    "group": 1.0,
+    "period": 2.0,
+    "valence": 1.0
+  },
+  "Be": {
+    "mass": 9.012182,
+    "radius": 1.05,
+    "eneg": 1.57,
+    "group": 2.0,
+    "period": 2.0,
+    "valence": 2.0
+  },
+  "B": {
+    "mass": 10.811,
+    "radius": 0.85,
+    "eneg": 2.04,
+    "group": 13.0,
+    "period": 2.0,
+    "valence": 3.0
+  },
+  "C": {
+    "mass": 12.0107,
+    "radius": 0.7,
+    "eneg": 2.55,
+    "group": 14.0,
+    "period": 2.0,
+    "valence": 4.0
+  },
+  "N": {
+    "mass": 14.0067,
+    "radius": 0.65,
+    "eneg": 3.04,
+    "group": 15.0,
+    "period": 2.0,
+    "valence": 5.0
+  },
+  "O": {
+    "mass": 15.9994,
+    "radius": 0.6,
+    "eneg": 3.44,
+    "group": 16.0,
+    "period": 2.0,
+    "valence": 6.0
+  },
+  "F": {
+    "mass": 18.9984032,
+    "radius": 0.5,
+    "eneg": 3.98,
+    "group": 17.0,
+    "period": 2.0,
+    "valence": 7.0
+  },
+  "Ne": {
+    "mass": 20.1797,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 18.0,
+    "period": 2.0,
+    "valence": 8.0
+  },
+  "Na": {
+    "mass": 22.98976928,
+    "radius": 1.8,
+    "eneg": 0.93,
+    "group": 1.0,
+    "period": 3.0,
+    "valence": 1.0
+  },
+  "Mg": {
+    "mass": 24.305,
+    "radius": 1.5,
+    "eneg": 1.31,
+    "group": 2.0,
+    "period": 3.0,
+    "valence": 2.0
+  },
+  "Al": {
+    "mass": 26.9815386,
+    "radius": 1.25,
+    "eneg": 1.61,
+    "group": 13.0,
+    "period": 3.0,
+    "valence": 3.0
+  },
+  "Si": {
+    "mass": 28.0855,
+    "radius": 1.1,
+    "eneg": 1.9,
+    "group": 14.0,
+    "period": 3.0,
+    "valence": 4.0
+  },
+  "P": {
+    "mass": 30.973762,
+    "radius": 1.0,
+    "eneg": 2.19,
+    "group": 15.0,
+    "period": 3.0,
+    "valence": 5.0
+  },
+  "S": {
+    "mass": 32.065,
+    "radius": 1.0,
+    "eneg": 2.58,
+    "group": 16.0,
+    "period": 3.0,
+    "valence": 6.0
+  },
+  "Cl": {
+    "mass": 35.453,
+    "radius": 1.0,
+    "eneg": 3.16,
+    "group": 17.0,
+    "period": 3.0,
+    "valence": 7.0
+  },
+  "Ar": {
+    "mass": 39.948,
+    "radius": 0.71,
+    "eneg": NaN,
+    "group": 18.0,
+    "period": 3.0,
+    "valence": 8.0
+  },
+  "K": {
+    "mass": 39.0983,
+    "radius": 2.2,
+    "eneg": 0.82,
+    "group": 1.0,
+    "period": 4.0,
+    "valence": 1.0
+  },
+  "Ca": {
+    "mass": 40.078,
+    "radius": 1.8,
+    "eneg": 1.0,
+    "group": 2.0,
+    "period": 4.0,
+    "valence": 2.0
+  },
+  "Sc": {
+    "mass": 44.955912,
+    "radius": 1.6,
+    "eneg": 1.36,
+    "group": 3.0,
+    "period": 4.0,
+    "valence": 3.0
+  },
+  "Ti": {
+    "mass": 47.867,
+    "radius": 1.4,
+    "eneg": 1.54,
+    "group": 4.0,
+    "period": 4.0,
+    "valence": 4.0
+  },
+  "V": {
+    "mass": 50.9415,
+    "radius": 1.35,
+    "eneg": 1.63,
+    "group": 5.0,
+    "period": 4.0,
+    "valence": 5.0
+  },
+  "Cr": {
+    "mass": 51.9961,
+    "radius": 1.4,
+    "eneg": 1.66,
+    "group": 6.0,
+    "period": 4.0,
+    "valence": 3.0
+  },
+  "Mn": {
+    "mass": 54.938045,
+    "radius": 1.4,
+    "eneg": 1.55,
+    "group": 7.0,
+    "period": 4.0,
+    "valence": 2.0
+  },
+  "Fe": {
+    "mass": 55.845,
+    "radius": 1.4,
+    "eneg": 1.83,
+    "group": 8.0,
+    "period": 4.0,
+    "valence": 2.0
+  },
+  "Co": {
+    "mass": 58.933195,
+    "radius": 1.35,
+    "eneg": 1.88,
+    "group": 9.0,
+    "period": 4.0,
+    "valence": 2.0
+  },
+  "Ni": {
+    "mass": 58.6934,
+    "radius": 1.35,
+    "eneg": 1.91,
+    "group": 10.0,
+    "period": 4.0,
+    "valence": 2.0
+  },
+  "Cu": {
+    "mass": 63.546,
+    "radius": 1.35,
+    "eneg": 1.9,
+    "group": 11.0,
+    "period": 4.0,
+    "valence": 2.0
+  },
+  "Zn": {
+    "mass": 65.409,
+    "radius": 1.35,
+    "eneg": 1.65,
+    "group": 12.0,
+    "period": 4.0,
+    "valence": 2.0
+  },
+  "Ga": {
+    "mass": 69.723,
+    "radius": 1.3,
+    "eneg": 1.81,
+    "group": 13.0,
+    "period": 4.0,
+    "valence": 3.0
+  },
+  "Ge": {
+    "mass": 72.64,
+    "radius": 1.25,
+    "eneg": 2.01,
+    "group": 14.0,
+    "period": 4.0,
+    "valence": 4.0
+  },
+  "As": {
+    "mass": 74.9216,
+    "radius": 1.15,
+    "eneg": 2.18,
+    "group": 15.0,
+    "period": 4.0,
+    "valence": 5.0
+  },
+  "Se": {
+    "mass": 78.96,
+    "radius": 1.15,
+    "eneg": 2.55,
+    "group": 16.0,
+    "period": 4.0,
+    "valence": 6.0
+  },
+  "Br": {
+    "mass": 79.904,
+    "radius": 1.15,
+    "eneg": 2.96,
+    "group": 17.0,
+    "period": 4.0,
+    "valence": 7.0
+  },
+  "Kr": {
+    "mass": 83.798,
+    "radius": 0.0,
+    "eneg": 3.0,
+    "group": 18.0,
+    "period": 4.0,
+    "valence": 8.0
+  },
+  "Rb": {
+    "mass": 85.4678,
+    "radius": 2.35,
+    "eneg": 0.82,
+    "group": 1.0,
+    "period": 5.0,
+    "valence": 1.0
+  },
+  "Sr": {
+    "mass": 87.62,
+    "radius": 2.0,
+    "eneg": 0.95,
+    "group": 2.0,
+    "period": 5.0,
+    "valence": 2.0
+  },
+  "Y": {
+    "mass": 88.90585,
+    "radius": 1.8,
+    "eneg": 1.22,
+    "group": 3.0,
+    "period": 5.0,
+    "valence": 3.0
+  },
+  "Zr": {
+    "mass": 91.224,
+    "radius": 1.55,
+    "eneg": 1.33,
+    "group": 4.0,
+    "period": 5.0,
+    "valence": 4.0
+  },
+  "Nb": {
+    "mass": 92.90638,
+    "radius": 1.45,
+    "eneg": 1.6,
+    "group": 5.0,
+    "period": 5.0,
+    "valence": 5.0
+  },
+  "Mo": {
+    "mass": 95.94,
+    "radius": 1.45,
+    "eneg": 2.16,
+    "group": 6.0,
+    "period": 5.0,
+    "valence": 4.0
+  },
+  "Tc": {
+    "mass": 98.0,
+    "radius": 1.35,
+    "eneg": 1.9,
+    "group": 7.0,
+    "period": 5.0,
+    "valence": 4.0
+  },
+  "Ru": {
+    "mass": 101.07,
+    "radius": 1.3,
+    "eneg": 2.2,
+    "group": 8.0,
+    "period": 5.0,
+    "valence": 3.0
+  },
+  "Rh": {
+    "mass": 102.9055,
+    "radius": 1.35,
+    "eneg": 2.28,
+    "group": 9.0,
+    "period": 5.0,
+    "valence": 3.0
+  },
+  "Pd": {
+    "mass": 106.42,
+    "radius": 1.4,
+    "eneg": 2.2,
+    "group": 10.0,
+    "period": 5.0,
+    "valence": 2.0
+  },
+  "Ag": {
+    "mass": 107.8682,
+    "radius": 1.6,
+    "eneg": 1.93,
+    "group": 11.0,
+    "period": 5.0,
+    "valence": 1.0
+  },
+  "Cd": {
+    "mass": 112.411,
+    "radius": 1.55,
+    "eneg": 1.69,
+    "group": 12.0,
+    "period": 5.0,
+    "valence": 2.0
+  },
+  "In": {
+    "mass": 114.818,
+    "radius": 1.55,
+    "eneg": 1.78,
+    "group": 13.0,
+    "period": 5.0,
+    "valence": 3.0
+  },
+  "Sn": {
+    "mass": 118.71,
+    "radius": 1.45,
+    "eneg": 1.96,
+    "group": 14.0,
+    "period": 5.0,
+    "valence": 4.0
+  },
+  "Sb": {
+    "mass": 121.76,
+    "radius": 1.45,
+    "eneg": 2.05,
+    "group": 15.0,
+    "period": 5.0,
+    "valence": 5.0
+  },
+  "Te": {
+    "mass": 127.6,
+    "radius": 1.4,
+    "eneg": 2.1,
+    "group": 16.0,
+    "period": 5.0,
+    "valence": 6.0
+  },
+  "I": {
+    "mass": 126.90447,
+    "radius": 1.4,
+    "eneg": 2.66,
+    "group": 17.0,
+    "period": 5.0,
+    "valence": 7.0
+  },
+  "Xe": {
+    "mass": 131.293,
+    "radius": 0.62,
+    "eneg": 2.6,
+    "group": 18.0,
+    "period": 5.0,
+    "valence": 8.0
+  },
+  "Cs": {
+    "mass": 132.9054519,
+    "radius": 2.6,
+    "eneg": 0.79,
+    "group": 1.0,
+    "period": 6.0,
+    "valence": 1.0
+  },
+  "Ba": {
+    "mass": 137.327,
+    "radius": 2.15,
+    "eneg": 0.89,
+    "group": 2.0,
+    "period": 6.0,
+    "valence": 2.0
+  },
+  "La": {
+    "mass": 138.90547,
+    "radius": 1.95,
+    "eneg": 1.1,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Ce": {
+    "mass": 140.116,
+    "radius": 1.85,
+    "eneg": 1.12,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Pr": {
+    "mass": 140.90765,
+    "radius": 1.85,
+    "eneg": 1.13,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Nd": {
+    "mass": 144.242,
+    "radius": 1.85,
+    "eneg": 1.14,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Pm": {
+    "mass": 145.0,
+    "radius": 1.85,
+    "eneg": 1.13,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Sm": {
+    "mass": 150.36,
+    "radius": 1.85,
+    "eneg": 1.17,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Eu": {
+    "mass": 151.964,
+    "radius": 1.85,
+    "eneg": 1.2,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 2.0
+  },
+  "Gd": {
+    "mass": 157.25,
+    "radius": 1.8,
+    "eneg": 1.2,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Tb": {
+    "mass": 158.92535,
+    "radius": 1.75,
+    "eneg": 1.1,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Dy": {
+    "mass": 162.5,
+    "radius": 1.75,
+    "eneg": 1.22,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Ho": {
+    "mass": 164.93032,
+    "radius": 1.75,
+    "eneg": 1.23,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Er": {
+    "mass": 167.259,
+    "radius": 1.75,
+    "eneg": 1.24,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Tm": {
+    "mass": 168.93421,
+    "radius": 1.75,
+    "eneg": 1.25,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Yb": {
+    "mass": 173.04,
+    "radius": 1.75,
+    "eneg": 1.1,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Lu": {
+    "mass": 174.967,
+    "radius": 1.75,
+    "eneg": 1.27,
+    "group": 3.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Hf": {
+    "mass": 178.49,
+    "radius": 1.55,
+    "eneg": 1.3,
+    "group": 4.0,
+    "period": 6.0,
+    "valence": 4.0
+  },
+  "Ta": {
+    "mass": 180.94788,
+    "radius": 1.45,
+    "eneg": 1.5,
+    "group": 5.0,
+    "period": 6.0,
+    "valence": 5.0
+  },
+  "W": {
+    "mass": 183.84,
+    "radius": 1.35,
+    "eneg": 2.36,
+    "group": 6.0,
+    "period": 6.0,
+    "valence": 4.0
+  },
+  "Re": {
+    "mass": 186.207,
+    "radius": 1.35,
+    "eneg": 1.9,
+    "group": 7.0,
+    "period": 6.0,
+    "valence": 4.0
+  },
+  "Os": {
+    "mass": 190.23,
+    "radius": 1.3,
+    "eneg": 2.2,
+    "group": 8.0,
+    "period": 6.0,
+    "valence": 4.0
+  },
+  "Ir": {
+    "mass": 192.217,
+    "radius": 1.35,
+    "eneg": 2.2,
+    "group": 9.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Pt": {
+    "mass": 195.084,
+    "radius": 1.35,
+    "eneg": 2.28,
+    "group": 10.0,
+    "period": 6.0,
+    "valence": 2.0
+  },
+  "Au": {
+    "mass": 196.966569,
+    "radius": 1.35,
+    "eneg": 2.54,
+    "group": 11.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Hg": {
+    "mass": 200.59,
+    "radius": 1.5,
+    "eneg": 2.0,
+    "group": 12.0,
+    "period": 6.0,
+    "valence": 1.0
+  },
+  "Tl": {
+    "mass": 204.3833,
+    "radius": 1.9,
+    "eneg": 1.62,
+    "group": 13.0,
+    "period": 6.0,
+    "valence": 3.0
+  },
+  "Pb": {
+    "mass": 207.2,
+    "radius": 1.8,
+    "eneg": 2.33,
+    "group": 14.0,
+    "period": 6.0,
+    "valence": 4.0
+  },
+  "Bi": {
+    "mass": 208.9804,
+    "radius": 1.6,
+    "eneg": 2.02,
+    "group": 15.0,
+    "period": 6.0,
+    "valence": 5.0
+  },
+  "Po": {
+    "mass": 210.0,
+    "radius": 1.9,
+    "eneg": 2.0,
+    "group": 16.0,
+    "period": 6.0,
+    "valence": 6.0
+  },
+  "At": {
+    "mass": 210.0,
+    "radius": 0.76,
+    "eneg": 2.2,
+    "group": 17.0,
+    "period": 6.0,
+    "valence": 7.0
+  },
+  "Rn": {
+    "mass": 220.0,
+    "radius": 0.0,
+    "eneg": 2.2,
+    "group": 18.0,
+    "period": 6.0,
+    "valence": 8.0
+  },
+  "Fr": {
+    "mass": 223.0,
+    "radius": 1.94,
+    "eneg": 0.7,
+    "group": 1.0,
+    "period": 7.0,
+    "valence": 1.0
+  },
+  "Ra": {
+    "mass": 226.0,
+    "radius": 2.15,
+    "eneg": 0.9,
+    "group": 2.0,
+    "period": 7.0,
+    "valence": 2.0
+  },
+  "Ac": {
+    "mass": 227.0,
+    "radius": 1.95,
+    "eneg": 1.1,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Th": {
+    "mass": 232.03806,
+    "radius": 1.8,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 4.0
+  },
+  "Pa": {
+    "mass": 231.03588,
+    "radius": 1.8,
+    "eneg": 1.5,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 5.0
+  },
+  "U": {
+    "mass": 238.02891,
+    "radius": 1.75,
+    "eneg": 1.38,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 6.0
+  },
+  "Np": {
+    "mass": 237.0,
+    "radius": 1.75,
+    "eneg": 1.36,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 5.0
+  },
+  "Pu": {
+    "mass": 244.0,
+    "radius": 1.75,
+    "eneg": 1.28,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 4.0
+  },
+  "Am": {
+    "mass": 243.0,
+    "radius": 1.75,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Cm": {
+    "mass": 247.0,
+    "radius": 1.05,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Bk": {
+    "mass": 247.0,
+    "radius": 1.0350000000000001,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Cf": {
+    "mass": 251.0,
+    "radius": 1.0255,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Es": {
+    "mass": 252.0,
+    "radius": 0.0,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Fm": {
+    "mass": 257.0,
+    "radius": 0.0,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Md": {
+    "mass": 258.0,
+    "radius": 0.0,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "No": {
+    "mass": 259.0,
+    "radius": 0.0,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Lr": {
+    "mass": 262.0,
+    "radius": 0.0,
+    "eneg": 1.3,
+    "group": 3.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Rf": {
+    "mass": 267.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 4.0,
+    "period": 7.0,
+    "valence": 0.0
+  },
+  "Db": {
+    "mass": 268.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 5.0,
+    "period": 7.0,
+    "valence": 0.0
+  },
+  "Sg": {
+    "mass": 269.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 6.0,
+    "period": 7.0,
+    "valence": 0.0
+  },
+  "Bh": {
+    "mass": 270.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 7.0,
+    "period": 7.0,
+    "valence": 0.0
+  },
+  "Hs": {
+    "mass": 270.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 8.0,
+    "period": 7.0,
+    "valence": 0.0
+  },
+  "Mt": {
+    "mass": 278.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 9.0,
+    "period": 7.0,
+    "valence": 0.0
+  },
+  "Ds": {
+    "mass": 281.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 10.0,
+    "period": 7.0,
+    "valence": 0.0
+  },
+  "Rg": {
+    "mass": 282.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 11.0,
+    "period": 7.0,
+    "valence": 0.0
+  },
+  "Cn": {
+    "mass": 285.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 12.0,
+    "period": 7.0,
+    "valence": 0.0
+  },
+  "Nh": {
+    "mass": 286.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 13.0,
+    "period": 7.0,
+    "valence": 3.0
+  },
+  "Fl": {
+    "mass": 289.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 14.0,
+    "period": 7.0,
+    "valence": 4.0
+  },
+  "Mc": {
+    "mass": 290.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 15.0,
+    "period": 7.0,
+    "valence": 5.0
+  },
+  "Lv": {
+    "mass": 293.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 16.0,
+    "period": 7.0,
+    "valence": 6.0
+  },
+  "Ts": {
+    "mass": 294.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 17.0,
+    "period": 7.0,
+    "valence": 7.0
+  },
+  "Og": {
+    "mass": 294.0,
+    "radius": 0.0,
+    "eneg": NaN,
+    "group": 18.0,
+    "period": 7.0,
+    "valence": 8.0
+  }
+}

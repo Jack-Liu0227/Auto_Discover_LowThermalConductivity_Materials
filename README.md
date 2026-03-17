@@ -227,6 +227,52 @@ Override initial dataset and theory document:
 python main.py --init-data data/processed_data.csv --init-doc doc/Theoretical_principle_document.md
 ```
 
+### Offline feature engineering
+
+Use the offline bootstrap script to generate `character`-style thermal conductivity features, run correlation pruning, SHAP ranking, and automatically choose how many features to keep from the cross-validation curve.
+
+Default input and output:
+
+- input dataset: `data/processed_data.csv`
+- output directory: `featureEngeering/`
+
+Recommended command:
+
+```bash
+python scripts/bootstrap_character_features.py --model-type extra_trees --selection-metric rmse
+```
+
+Common variants:
+
+```bash
+python scripts/bootstrap_character_features.py --model-type extra_trees --selection-metric r2
+python scripts/bootstrap_character_features.py --model-type extra_trees --selection-metric mae
+python scripts/bootstrap_character_features.py --model-type extra_trees --selection-metric rmse --top-n 6
+```
+
+Selection behavior:
+
+- SHAP determines the feature ranking order.
+- Cross-validation curve determines how many top-ranked features to keep.
+- `--selection-metric rmse` selects the feature count with minimum RMSE.
+- `--selection-metric r2` selects the feature count with maximum R2.
+- `--selection-metric mae` selects the feature count with minimum MAE.
+- `--top-n` is now only a manual override. If omitted, the feature count is selected automatically.
+
+Main outputs written to `featureEngeering/`:
+
+- `character_features.csv`: candidate feature table
+- `feature_target_correlation.csv`: feature-target correlation ranking
+- `feature_correlation_matrix.csv`: feature-feature correlation matrix
+- `feature_correlation_heatmap.png`: correlation heatmap
+- `correlation_pruned_features.json`: dropped and retained correlated features
+- `shap_importance.csv`: SHAP global importance ranking
+- `shap_summary.png`: SHAP summary plot
+- `feature_count_metrics.csv`: CV metrics vs. number of features
+- `feature_count_metrics.png`: CV metric curve used for automatic feature-count selection
+- `selected_features.json`: final selected feature list
+- `feature_selection_manifest.json`: run configuration and final selection summary
+
 ### AgentOS runtime
 
 ```bash
