@@ -419,31 +419,39 @@ Errors:
 
 ## Evaluation Task
 
-You are a materials science expert. Based on the above theoretical principles document (especially **Section 2: Design Theory** and **Section 5: Evaluation Rules**), evaluate the candidate materials and select the {n_select} most promising low thermal conductivity materials.
+You are a materials science expert. Based on the above theoretical principles document, rerank the candidate materials internally and keep only the top {n_select} materials that are most promising for stable low lattice thermal conductivity.
 
 **Evaluation Requirements**:
 
-1. **Theoretical Consistency Analysis**:
-   - Check if materials conform to the four major phonon scattering mechanisms.
-   - Verify compliance with core evaluation parameters from the document.
-   - Validate using successful-case theoretical summary if available.
+1. **Ranking Objective**:
+   - Prioritize candidates that are more likely to remain stable while achieving low lattice thermal conductivity.
+   - Use the theory document as the primary ranking guide.
+   - Use candidate parameters such as predicted thermal conductivity, uncertainty, EI/score, element set, and atom count as supporting evidence.
    - Use `WebSearch Evidence` as supplementary evidence only.
 
-2. **Comprehensive Judgment Principles**:
-   - Theoretical principle compliance > acquisition function value (EI/Score).
-   - Provide explicit physical-mechanism reasoning.
+2. **Selection Procedure**:
+   - Internally rerank the full candidate pool first.
+   - Then keep only the top {n_select} materials.
+   - The output must contain only the retained top {n_select} materials, in final priority order.
+   - The output order itself is the final ranking order.
+
+3. **Reasoning Requirements**:
+   - `ranking_reason` should explain why this material belongs in the retained top-{n_select} list.
+   - `main_risk` should describe the single most important uncertainty or failure risk.
+   - Keep both reason fields concise and specific.
 {extra_instruction_block}
 
-3. **Output Format**: Return JSON strictly in this schema:
+4. **Output Format**: Return JSON strictly in this schema:
 
 ```json
 {{
   "selected_materials": [
     {{
       "formula": "Bi2Te3",
-      "predicted_thermal_conductivity": 1.50,
-      "reasoning": "brief physics-based reason",
-      "confidence": "high/medium/low"
+      "final_rank": 1,
+      "original_rank": 3,
+      "ranking_reason": "brief reason for entering the retained top-n",
+      "main_risk": "brief main uncertainty"
     }}
   ]
 }}
@@ -451,9 +459,12 @@ You are a materials science expert. Based on the above theoretical principles do
 
 **Strict Requirements**:
 - Must select exactly {n_select} materials.
+- `final_rank` must be continuous integers from 1 to {n_select}.
+- `original_rank` is optional, but if present it must refer to the candidate list order shown above.
 - JSON must be directly parsable by Python json.loads().
-- Numerical fields must be numeric types.
-- confidence must be one of high/medium/low.
+- Do not output any material outside the provided candidate list.
+- Do not output any text outside JSON.
+- Do not include candidates that are not in the final retained top-{n_select}.
 - Do not output any text outside JSON.
 """
         return prompt
@@ -504,15 +515,47 @@ def _extract_selected_materials(evaluation_text: str) -> list:
         except Exception:
             return []
 
-    for i, mat in enumerate(data.get("selected_materials", []), 1):
+    raw_selected = data.get("selected_materials", [])
+    if not isinstance(raw_selected, list):
+        return []
+
+    for i, mat in enumerate(raw_selected, 1):
+        if not isinstance(mat, dict):
+            continue
+        formula = str(mat.get("formula", "")).strip()
+        if not formula:
+            continue
+        try:
+            final_rank = int(mat.get("final_rank", i))
+        except Exception:
+            final_rank = i
+        try:
+            original_rank = int(mat["original_rank"]) if mat.get("original_rank") is not None else None
+        except Exception:
+            original_rank = None
         selected.append(
             {
-                "rank": i,
-                "formula": mat.get("formula", ""),
-                "k_pred": mat.get("predicted_thermal_conductivity", 0.0),
+                "final_rank": final_rank,
+                "formula": formula,
+                "ranking_reason": str(mat.get("ranking_reason", "")).strip(),
+                "main_risk": str(mat.get("main_risk", "")).strip(),
+                "original_rank": original_rank,
             }
         )
+
+    selected = sorted(selected, key=lambda row: (int(row.get("final_rank", 10**9)), row.get("formula", "")))
+    for i, row in enumerate(selected, 1):
+        row["final_rank"] = i
+        if row.get("original_rank") is None:
+            row.pop("original_rank", None)
     return selected
+
+
+def _limit_selected_materials(selected_materials: list[dict[str, Any]], n_select: int) -> list[dict[str, Any]]:
+    limited = list(selected_materials[: max(0, int(n_select))])
+    for i, row in enumerate(limited, 1):
+        row["final_rank"] = i
+    return limited
 
 
 def save_evaluation_results(result: Dict, output_dir: str | None = None):
@@ -523,7 +566,10 @@ def save_evaluation_results(result: Dict, output_dir: str | None = None):
 
     os.makedirs(output_dir, exist_ok=True)
 
-    selected_materials = _extract_selected_materials(result["evaluation"])
+    selected_materials = _limit_selected_materials(
+        _extract_selected_materials(result["evaluation"]),
+        int(result.get("n_selected", 0) or 0),
+    )
     if not selected_materials:
         return None
 
@@ -539,9 +585,12 @@ def save_evaluation_results(result: Dict, output_dir: str | None = None):
         if matched_material:
             csv_data.append(
                 {
-                    "rank": mat["rank"],
+                    "final_rank": mat["final_rank"],
+                    "original_rank": mat.get("original_rank", ""),
                     "formula": mat["formula"],
-                    "k_pred": mat["k_pred"],
+                    "ranking_reason": mat.get("ranking_reason", ""),
+                    "main_risk": mat.get("main_risk", ""),
+                    "k_pred": matched_material.get("k_pred", ""),
                     "mu_log": matched_material.get("mu_log", ""),
                     "sigma_log": matched_material.get("sigma_log", ""),
                     "ei": matched_material.get("ei", matched_material.get("score", "")),
@@ -553,7 +602,15 @@ def save_evaluation_results(result: Dict, output_dir: str | None = None):
                 }
             )
         else:
-            csv_data.append({"rank": mat["rank"], "formula": mat["formula"], "k_pred": mat["k_pred"]})
+            csv_data.append(
+                {
+                    "final_rank": mat["final_rank"],
+                    "original_rank": mat.get("original_rank", ""),
+                    "formula": mat["formula"],
+                    "ranking_reason": mat.get("ranking_reason", ""),
+                    "main_risk": mat.get("main_risk", ""),
+                }
+            )
 
     pd.DataFrame(csv_data).to_csv(csv_file, index=False, encoding="utf-8-sig")
     print(f"[evaluator] saved selected csv: {csv_file}")

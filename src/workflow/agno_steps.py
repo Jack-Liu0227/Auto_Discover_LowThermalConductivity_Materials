@@ -836,7 +836,14 @@ def build_aslk_steps(
             if text_requested_iterations is not None:
                 requested_iterations = text_requested_iterations
         loop_end = max_iterations
-        if requested_iterations is not None:
+        if bool(run_config.get("max_iterations_locked", False)):
+            requested_iterations = None
+            loop_end = max_iterations
+            print(
+                f"[agentos] max_iterations locked by CLI/config, "
+                f"start={start_iteration}, locked_end={loop_end}"
+            )
+        elif requested_iterations is not None:
             cap = int(run_config.get("agentos_max_iterations_cap", 20))
             loop_end = min(max(start_iteration, requested_iterations), cap)
             print(
@@ -855,6 +862,12 @@ def build_aslk_steps(
                 session_state.setdefault(k, v if not isinstance(v, list) else list(v))
 
         for iteration in range(start_iteration, loop_end + 1):
+            if iteration > int(max_iterations):
+                print(
+                    f"[agentos] stop guard reached: iteration={iteration}, "
+                    f"max_iterations={max_iterations}"
+                )
+                break
             result = _run_single_iteration(iteration, run_config, tracker, local_samples)
             all_results.append(result)
             compact_result = _compact_iteration_result(result)

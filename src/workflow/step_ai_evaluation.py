@@ -12,7 +12,12 @@ import pandas as pd
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from agents.material_evaluator import MaterialEvaluator, save_evaluation_report, _extract_selected_materials
+from agents.material_evaluator import (
+    MaterialEvaluator,
+    save_evaluation_report,
+    _extract_selected_materials,
+    _limit_selected_materials,
+)
 from utils.path_config import PathConfig
 
 
@@ -195,7 +200,10 @@ def step_ai_evaluation(
         report_path = save_evaluation_report(evaluation_result)
         print(f"✅ AI 评估报告已保存: {report_path}")
 
-        selected_materials = _extract_selected_materials(evaluation_result["evaluation"])
+        selected_materials = _limit_selected_materials(
+            _extract_selected_materials(evaluation_result["evaluation"]),
+            n_select,
+        )
 
         if not selected_materials:
             print("❌ 未能提取筛选材料")

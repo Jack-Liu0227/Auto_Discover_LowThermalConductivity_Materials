@@ -41,8 +41,12 @@ def _to_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
         return pd.DataFrame(
             columns=[
                 "rank",
+                "final_rank",
                 "bo_rank",
+                "original_rank",
                 "formula",
+                "ranking_reason",
+                "main_risk",
                 "k_pred",
                 "mu_log",
                 "sigma_log",
@@ -76,7 +80,20 @@ def _copy_material(material: dict[str, Any], *, bo_rank: int, selection_source: 
             row["rank"] = int(row["rank"])
         except Exception:
             row["rank"] = int(bo_rank)
+    row["final_rank"] = int(row["rank"])
     return row
+
+
+def _merge_rerank_fields(base_row: dict[str, Any], reranked_row: dict[str, Any] | None) -> dict[str, Any]:
+    if not reranked_row:
+        return base_row
+    merged = dict(base_row)
+    for key in ("ranking_reason", "main_risk", "original_rank"):
+        value = reranked_row.get(key)
+        if value is None:
+            continue
+        merged[key] = value
+    return merged
 
 
 def _build_selection_constraints() -> str:
@@ -168,19 +185,27 @@ def run_guarded_ai_selection(
     supplement_rows: list[dict[str, Any]] = []
     selected_formulas: set[str] = {normalize_formula(row.get("formula")) for row in locked_rows}
 
+    reranked_lookup = {
+        normalize_formula(item.get("formula")): item
+        for item in raw_ai_selected
+        if normalize_formula(item.get("formula"))
+    }
+
     for raw_row in raw_ai_selected:
         normalized = normalize_formula(raw_row.get("formula"))
         if not normalized or normalized in selected_formulas or normalized not in supplement_lookup:
             continue
         bo_rank, material = supplement_lookup[normalized]
-        supplement_rows.append(
+        merged_row = _merge_rerank_fields(
             _copy_material(
                 material,
                 bo_rank=bo_rank,
                 selection_source="ai_supplement",
-                rank=len(locked_rows) + len(supplement_rows) + 1,
-            )
+                rank=len(supplement_rows) + 1,
+            ),
+            reranked_lookup.get(normalized),
         )
+        supplement_rows.append(merged_row)
         selected_formulas.add(normalized)
         if len(supplement_rows) >= GUARDED_SUPPLEMENT_COUNT:
             break
@@ -191,14 +216,16 @@ def run_guarded_ai_selection(
         normalized = normalize_formula(fallback_material.get("formula"))
         if not normalized or normalized in selected_formulas:
             continue
-        supplement_rows.append(
+        merged_row = _merge_rerank_fields(
             _copy_material(
                 fallback_material,
                 bo_rank=fallback_rank,
                 selection_source="bo_backfill",
-                rank=len(locked_rows) + len(supplement_rows) + 1,
-            )
+                rank=len(supplement_rows) + 1,
+            ),
+            reranked_lookup.get(normalized),
         )
+        supplement_rows.append(merged_row)
         selected_formulas.add(normalized)
 
     sanitized_ai_csv = base_dir / "ai_selected_materials.csv"
@@ -206,7 +233,12 @@ def run_guarded_ai_selection(
     _write_csv(sanitized_ai_csv, supplement_rows)
     _write_csv(ai_supplement_csv, supplement_rows)
 
-    final_selected_rows = locked_rows + supplement_rows
+    final_selected_rows = []
+    for combined_rank, row in enumerate(locked_rows + supplement_rows, start=1):
+        combined_row = dict(row)
+        combined_row["rank"] = combined_rank
+        combined_row["final_rank"] = combined_rank
+        final_selected_rows.append(combined_row)
     final_selected_csv = base_dir / "final_selected_10.csv"
     _write_csv(final_selected_csv, final_selected_rows)
 

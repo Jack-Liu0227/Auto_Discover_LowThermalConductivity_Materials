@@ -89,6 +89,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--websearch-enabled", dest="websearch_enabled", action="store_true")
     parser.add_argument("--no-websearch-enabled", dest="websearch_enabled", action="store_false")
     parser.set_defaults(websearch_enabled=True)
+    parser.add_argument("--skip-doc-update", dest="skip_doc_update", action="store_true")
+    parser.add_argument("--no-skip-doc-update", dest="skip_doc_update", action="store_false")
+    parser.set_defaults(skip_doc_update=None)
     parser.add_argument("--max-iterations", type=int, default=None)
     parser.add_argument("--add-iterations", type=int, default=None)
     parser.add_argument("--samples", type=int, default=None)
@@ -208,6 +211,8 @@ def build_config(args: argparse.Namespace) -> dict:
     config["websearch_strategy"] = "hybrid"
     config["websearch_queries_per_candidate"] = 2
     config["websearch_theory_template"] = None
+    if args.skip_doc_update is not None:
+        config["skip_doc_update"] = bool(args.skip_doc_update)
     config["init_data_path"] = args.init_data
     config["init_doc_path"] = args.init_doc
     return config
@@ -240,6 +245,8 @@ def apply_explicit_cli_overrides(config: dict, args: argparse.Namespace) -> None
         config["websearch_enabled"] = args.websearch_enabled
     if "websearch_top_n" in explicit_dests:
         config["websearch_top_n"] = args.websearch_top_n
+    if "skip_doc_update" in explicit_dests and args.skip_doc_update is not None:
+        config["skip_doc_update"] = bool(args.skip_doc_update)
     if "init_data" in explicit_dests:
         config["init_data_path"] = args.init_data
     if "init_doc" in explicit_dests:
@@ -290,6 +297,7 @@ def resolve_iteration_window(
     tracker: ProgressTracker,
     max_iterations: int | None,
     add_iterations: int | None,
+    default_iterations: int,
 ) -> tuple[list[int], int, int, int]:
     completed_rounds = tracker.get_completed_rounds()
     last_completed = max(completed_rounds) if completed_rounds else 0
@@ -297,7 +305,7 @@ def resolve_iteration_window(
     if add_iterations is not None:
         effective_target = last_completed + add_iterations
     else:
-        effective_target = max_iterations if max_iterations is not None else 3
+        effective_target = max_iterations if max_iterations is not None else int(default_iterations)
 
     start_iteration = max(1, last_completed + 1)
     return completed_rounds, last_completed, start_iteration, effective_target
@@ -316,6 +324,9 @@ def main() -> None:
     config["params_csv_path"] = str(param_sheet_path)
     if args.max_iterations is not None:
         config["agentos_default_iterations"] = args.max_iterations
+        config["max_iterations_locked"] = True
+    else:
+        config["max_iterations_locked"] = False
     repro_info = setup_reproducibility(
         seed=int(config.get("seed", 42)),
         deterministic_torch=bool(config.get("deterministic_torch", True)),
@@ -339,6 +350,7 @@ def main() -> None:
         tracker=tracker,
         max_iterations=args.max_iterations,
         add_iterations=args.add_iterations,
+        default_iterations=int(config.get("agentos_default_iterations", 3)),
     )
 
     print("=" * 80)
@@ -362,8 +374,9 @@ def main() -> None:
     print(f"runtime: {args.runtime}")
     print(f"seed: {repro_info['seed']}")
     print(f"deterministic_torch: {repro_info['deterministic_torch']}")
-    print(f"websearch enabled: {args.websearch_enabled}")
-    print(f"websearch top-n: {args.websearch_top_n}")
+    print(f"websearch enabled: {config['websearch_enabled']}")
+    print(f"websearch top-n: {config['websearch_top_n']}")
+    print(f"skip doc update: {config['skip_doc_update']}")
     print(f"requested max-iterations: {args.max_iterations}")
     print(f"requested add-iterations: {args.add_iterations}")
     print(f"completed_rounds={completed_rounds}")
