@@ -174,15 +174,27 @@ def _append_iteration_summary(iteration_num: int, extract_result: dict) -> None:
         for key, source_path in source_files.items():
             if not source_path or not os.path.exists(source_path):
                 continue
-            df_new = pd.read_csv(source_path)
-            df_new.insert(0, "iteration", iteration_num)
             target_file = summary_files[key]
-            if target_file.exists():
-                df_existing = pd.read_csv(target_file)
-                df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-                df_combined.to_csv(target_file, index=False)
+            df_new = pd.read_csv(source_path, encoding="utf-8-sig").copy()
+            if "iteration" in df_new.columns:
+                df_new["iteration"] = iteration_num
             else:
-                df_new.to_csv(target_file, index=False)
+                df_new.insert(0, "iteration", iteration_num)
+            if target_file.exists():
+                df_existing = pd.read_csv(target_file, encoding="utf-8-sig")
+                if "iteration" in df_existing.columns:
+                    df_existing = df_existing[df_existing["iteration"] != iteration_num]
+                df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+            else:
+                df_combined = df_new
+            sort_cols = [
+                col for col in
+                ["iteration", "formula", "composition", "thermal_conductivity_w_mk", "structure_id", "cif_file"]
+                if col in df_combined.columns
+            ]
+            if sort_cols:
+                df_combined = df_combined.sort_values(by=sort_cols, kind="mergesort", na_position="last")
+            df_combined.to_csv(target_file, index=False, encoding="utf-8-sig")
     except Exception as exc:
         print(f"[WARN] Failed to update summary files: {exc}")
 
@@ -290,6 +302,7 @@ def run_single_iteration(iteration_num: int, config: dict, tracker: ProgressTrac
             gpus=config.get("gpus", ["cuda:0"]),
             allow_partial_completion=config.get("allow_partial_structure", False),
             results_root=RESULTS_ROOT,
+            seed=config.get("seed"),
             tracker=tracker,
             path_config=config.get("path_config"),
         )

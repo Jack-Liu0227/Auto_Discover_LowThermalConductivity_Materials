@@ -653,7 +653,15 @@ def main(
         s['ei'] = ei_values[i]
 
     # 按 EI 排序 (越大越好)
-    samples_sorted = sorted(samples, key=lambda x: x['ei'], reverse=True)
+    samples_sorted = sorted(
+        samples,
+        key=lambda x: (
+            -float(x['ei']),
+            float(x['k_pred']),
+            str(x['formula']),
+            int(x.get('total_atoms', 0)),
+        ),
+    )
 
     #=========================================================================
     # 输出全部100个样本的详细信息

@@ -149,7 +149,7 @@ class SuccessMaterialsExtractor:
         success_idx = 1
         stable_idx = 1
 
-        csv_files = list(self.myrelax_dir.rglob("thermal_conductivity.csv"))
+        csv_files = sorted(self.myrelax_dir.rglob("thermal_conductivity.csv"))
         logger.info("Found %d thermal_conductivity.csv files", len(csv_files))
 
         for csv_file in csv_files:
@@ -313,8 +313,8 @@ class SuccessMaterialsExtractor:
                 stem = Path(str(cif_filename)).stem
                 phonon_dir = csv_file.parent / f"{stem}_phonon"
                 if phonon_dir.exists():
-                    band_candidates = list(phonon_dir.glob("*_phonon_band.png"))
-                    dos_candidates = list(phonon_dir.glob("*_phonon_dos.png"))
+                    band_candidates = sorted(phonon_dir.glob("*_phonon_band.png"))
+                    dos_candidates = sorted(phonon_dir.glob("*_phonon_dos.png"))
                     band_src = band_candidates[0] if band_candidates else (phonon_dir / "phonon_band.png")
                     dos_src = dos_candidates[0] if dos_candidates else (phonon_dir / "phonon_dos.png")
                     spectrum_src = phonon_dir / "phonon_spectrum.png"

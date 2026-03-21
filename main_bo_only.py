@@ -102,6 +102,32 @@ BO_STEPS = [
 ]
 
 
+def _update_iteration_summary_csv(target_file: Path, source_path: str, iteration_num: int) -> int:
+    df_new = pd.read_csv(source_path, encoding="utf-8-sig").copy()
+    if "iteration" in df_new.columns:
+        df_new["iteration"] = iteration_num
+    else:
+        df_new.insert(0, "iteration", iteration_num)
+
+    if target_file.exists():
+        df_existing = pd.read_csv(target_file, encoding="utf-8-sig")
+        if "iteration" in df_existing.columns:
+            df_existing = df_existing[df_existing["iteration"] != iteration_num]
+        df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+    else:
+        df_combined = df_new
+
+    sort_cols = [
+        col for col in
+        ["iteration", "formula", "composition", "thermal_conductivity_w_mk", "structure_id", "cif_file"]
+        if col in df_combined.columns
+    ]
+    if sort_cols:
+        df_combined = df_combined.sort_values(by=sort_cols, kind="mergesort", na_position="last")
+    df_combined.to_csv(target_file, index=False, encoding="utf-8-sig")
+    return len(df_combined)
+
+
 def load_fallback_bo_candidates(limit=5, fallback_iteration=15):
     fallback_path = project_root / RESULTS_ROOT / f"iteration_{fallback_iteration}" / "selected_results" / "bo_candidates.json"
     if not fallback_path.exists():
@@ -324,6 +350,7 @@ def run_single_iteration(iteration_num: int, config: dict, tracker: ProgressTrac
             gpus=config.get('gpus', ['cuda:0']),  # 浼犻€扜PU鍒楄〃
             allow_partial_completion=config.get('allow_partial_structure', False),
             results_root=RESULTS_ROOT,
+            seed=config.get('seed'),
             tracker=tracker,  # 浼犻€抰racker浠ユ敮鎸佸瓙姝ラ璺熻釜
             path_config=config.get('path_config')
         )
@@ -402,24 +429,9 @@ def run_single_iteration(iteration_num: int, config: dict, tracker: ProgressTrac
                 # 执行追加逻辑
                 for key, source_path in source_files.items():
                     if source_path and os.path.exists(source_path):
-                        # 读取新增数据
-                        df_new = pd.read_csv(source_path)
-                        # 添加 iteration 列
-                        df_new.insert(0, 'iteration', iteration_num)
-                        
                         target_file = summary_files[key]
-                        
-                        if target_file.exists():
-                            # 读取现有汇总
-                            df_existing = pd.read_csv(target_file)
-                            # 合并（保留所有历史记录，仅追加）
-                            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-                            df_combined.to_csv(target_file, index=False)
-                            print(f"  [LOG] Appended to summary: {RESULTS_ROOT}/{target_file.name} (total: {len(df_combined)})")
-                        else:
-                            # 创建新表
-                            df_new.to_csv(target_file, index=False)
-                            print(f"  [LOG] Created summary: {RESULTS_ROOT}/{target_file.name} (rows: {len(df_new)})")
+                        total_rows = _update_iteration_summary_csv(target_file, source_path, iteration_num)
+                        print(f"  [LOG] Synced summary: {RESULTS_ROOT}/{target_file.name} (total: {total_rows})")
 
             except Exception as e:
                 print(f"[WARN] Failed to update summary files: {e}")

@@ -138,6 +138,9 @@ class BootstrapArtifacts:
     shap_summary_path: str
     feature_curve_csv_path: str
     feature_curve_plot_path: str
+    feature_set_comparison_csv_path: str
+    feature_set_comparison_json_path: str
+    feature_set_comparison_plot_path: str
 
 
 def _drop_unnamed_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -692,6 +695,184 @@ def _plot_correlation_heatmap(correlation_matrix: pd.DataFrame, output_path: Pat
     plt.close()
 
 
+def get_element_feature_columns(raw_df: pd.DataFrame) -> list[str]:
+    excluded = {FORMULA_COLUMN, TARGET_COLUMN}
+    element_cols: list[str] = []
+    for col in raw_df.columns:
+        col_name = str(col)
+        if col_name in excluded or col_name.startswith("Unnamed:") or str(col_name).strip() == "":
+            continue
+        if not pd.api.types.is_numeric_dtype(raw_df[col]):
+            continue
+        if raw_df[col].isna().all():
+            continue
+        element_cols.append(col_name)
+    if not element_cols:
+        raise ValueError("No valid element feature columns found in the raw dataset")
+    return element_cols
+
+
+def load_selected_feature_columns(output_dir: str | Path) -> list[str]:
+    selected_path = Path(output_dir) / "selected_features.json"
+    if not selected_path.exists():
+        raise FileNotFoundError(f"Selected feature file not found: {selected_path}")
+    selected = json.loads(selected_path.read_text(encoding="utf-8"))
+    if not isinstance(selected, list) or not selected:
+        raise ValueError(f"Selected feature file is empty or invalid: {selected_path}")
+    return [str(item) for item in selected]
+
+
+def build_feature_set_variants(
+    raw_df: pd.DataFrame,
+    feature_df: pd.DataFrame,
+    output_dir: str | Path,
+) -> dict[str, pd.DataFrame]:
+    element_cols = get_element_feature_columns(raw_df)
+    selected_cols = load_selected_feature_columns(output_dir)
+
+    missing_selected = [col for col in selected_cols if col not in feature_df.columns]
+    if missing_selected:
+        raise ValueError(f"Selected features missing from character_features.csv: {missing_selected}")
+
+    element_only = raw_df[element_cols].copy()
+    selected_only = feature_df[selected_cols].copy()
+    merged_cols = list(dict.fromkeys(element_cols + selected_cols))
+    element_plus_selected = pd.concat([raw_df[element_cols], feature_df[selected_cols]], axis=1)
+    element_plus_selected = element_plus_selected.loc[:, ~element_plus_selected.columns.duplicated()].copy()
+    element_plus_selected = element_plus_selected[merged_cols]
+
+    feature_sets = {
+        "element_only": element_only,
+        "selected_only": selected_only,
+        "element_plus_selected": element_plus_selected,
+    }
+    for name, frame in feature_sets.items():
+        if frame.empty or frame.shape[1] == 0:
+            raise ValueError(f"Feature set '{name}' is empty")
+    return feature_sets
+
+
+def evaluate_feature_set_variants(
+    feature_sets: dict[str, pd.DataFrame],
+    target: pd.Series,
+    model_type: str,
+    random_state: int,
+) -> pd.DataFrame:
+    def _rmse_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        return float(np.sqrt(mean_squared_error(y_true, y_pred)))
+
+    cv = KFold(n_splits=5, shuffle=True, random_state=random_state)
+    scorers = {
+        "r2": make_scorer(r2_score),
+        "mae": make_scorer(mean_absolute_error, greater_is_better=False),
+        "rmse": make_scorer(_rmse_score, greater_is_better=False),
+    }
+    rows: list[dict[str, Any]] = []
+    for name, frame in feature_sets.items():
+        model = _build_model(model_type=model_type, random_state=random_state)
+        scores = cross_validate(
+            model,
+            frame,
+            target,
+            cv=cv,
+            scoring=scorers,
+            n_jobs=1,
+        )
+        rows.append(
+            {
+                "feature_set_name": name,
+                "feature_count": int(frame.shape[1]),
+                "r2_mean": float(np.mean(scores["test_r2"])),
+                "r2_std": float(np.std(scores["test_r2"])),
+                "mae_mean": float(-np.mean(scores["test_mae"])),
+                "mae_std": float(np.std(-scores["test_mae"])),
+                "rmse_mean": float(-np.mean(scores["test_rmse"])),
+                "rmse_std": float(np.std(-scores["test_rmse"])),
+                "features": frame.columns.tolist(),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def select_best_feature_set(comparison_df: pd.DataFrame) -> dict[str, Any]:
+    if comparison_df.empty:
+        raise ValueError("Feature set comparison dataframe is empty")
+    ranked = comparison_df.sort_values(
+        by=["mae_mean", "rmse_mean", "feature_count"],
+        ascending=[True, True, True],
+    ).reset_index(drop=True)
+    best = ranked.iloc[0]
+    return {
+        "best_feature_set_name": str(best["feature_set_name"]),
+        "best_feature_count": int(best["feature_count"]),
+        "best_mae": float(best["mae_mean"]),
+        "best_rmse": float(best["rmse_mean"]),
+        "best_r2": float(best["r2_mean"]),
+    }
+
+
+def _write_feature_set_comparison_outputs(
+    comparison_df: pd.DataFrame,
+    output_dir: Path,
+    best_feature_set_name: str,
+) -> None:
+    comparison_df.to_csv(output_dir / "feature_set_comparison.csv", index=False, encoding="utf-8-sig")
+    payload = {
+        "best_feature_set_name": best_feature_set_name,
+        "feature_sets": comparison_df.to_dict(orient="records"),
+    }
+    with (output_dir / "feature_set_comparison.json").open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+
+    plot_df = comparison_df.copy()
+    metric_specs = [
+        ("r2_mean", "r2_std", "R2", True, "#1f77b4"),
+        ("mae_mean", "mae_std", "MAE", False, "#d62728"),
+        ("rmse_mean", "rmse_std", "RMSE", False, "#2ca02c"),
+    ]
+    x = np.arange(len(plot_df))
+    best_idx = int(plot_df.index[plot_df["feature_set_name"] == best_feature_set_name][0])
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharex=True)
+    for ax, (mean_col, std_col, label, higher_is_better, color) in zip(axes, metric_specs):
+        bars = ax.bar(
+            x,
+            plot_df[mean_col],
+            yerr=plot_df[std_col],
+            capsize=5,
+            color=color,
+            alpha=0.88,
+            edgecolor="white",
+            linewidth=1.0,
+        )
+        best_metric_idx = int(plot_df[mean_col].idxmax() if higher_is_better else plot_df[mean_col].idxmin())
+        bars[best_metric_idx].set_edgecolor("black")
+        bars[best_metric_idx].set_linewidth(2.2)
+        if best_idx != best_metric_idx:
+            bars[best_idx].set_edgecolor("#444444")
+            bars[best_idx].set_linewidth(1.8)
+        ax.set_title(label)
+        ax.set_xticks(x)
+        ax.set_xticklabels(plot_df["feature_set_name"], rotation=15, ha="right")
+        ax.grid(True, axis="y", linestyle="--", alpha=0.35)
+        for bar, value in zip(bars, plot_df[mean_col]):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2.0,
+                bar.get_height(),
+                f"{value:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+            )
+
+    axes[0].set_ylabel("Cross-Validation Score")
+    fig.suptitle("Feature Set Comparison", fontsize=18)
+    fig.tight_layout()
+    fig.subplots_adjust(top=0.85)
+    plt.savefig(output_dir / "feature_set_comparison.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+
 def run_character_feature_bootstrap(
     input_path: str | Path,
     output_dir: str | Path,
@@ -700,6 +881,7 @@ def run_character_feature_bootstrap(
     random_state: int = DEFAULT_RANDOM_STATE,
     model_type: str = "xgboost",
     selection_metric: str = DEFAULT_SELECTION_METRIC,
+    compare_feature_sets: bool = False,
 ) -> BootstrapArtifacts:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -759,6 +941,32 @@ def run_character_feature_bootstrap(
     with (output_dir / "selected_features.json").open("w", encoding="utf-8") as handle:
         json.dump(selected_features, handle, indent=2, ensure_ascii=False)
 
+    comparison_csv_path = output_dir / "feature_set_comparison.csv"
+    comparison_json_path = output_dir / "feature_set_comparison.json"
+    comparison_plot_path = output_dir / "feature_set_comparison.png"
+    best_feature_set_name = ""
+    best_feature_set_feature_count = 0
+    if compare_feature_sets:
+        feature_sets = build_feature_set_variants(
+            raw_df=raw_df,
+            feature_df=feature_df,
+            output_dir=output_dir,
+        )
+        comparison_df = evaluate_feature_set_variants(
+            feature_sets=feature_sets,
+            target=feature_df[TARGET_COLUMN],
+            model_type=model_type,
+            random_state=random_state,
+        )
+        best_feature_set = select_best_feature_set(comparison_df)
+        best_feature_set_name = str(best_feature_set["best_feature_set_name"])
+        best_feature_set_feature_count = int(best_feature_set["best_feature_count"])
+        _write_feature_set_comparison_outputs(
+            comparison_df=comparison_df,
+            output_dir=output_dir,
+            best_feature_set_name=best_feature_set_name,
+        )
+
     manifest = {
         "input_path": str(Path(input_path)),
         "output_dir": str(output_dir),
@@ -781,6 +989,11 @@ def run_character_feature_bootstrap(
         "best_r2_feature_count": int(curve_df.loc[curve_df["r2_mean"].dropna().idxmax(), "feature_count"]) if curve_df["r2_mean"].notna().any() else 0,
         "best_mae_feature_count": int(curve_df.loc[curve_df["mae_mean"].dropna().idxmin(), "feature_count"]) if curve_df["mae_mean"].notna().any() else 0,
         "best_rmse_feature_count": int(curve_df.loc[curve_df["rmse_mean"].dropna().idxmin(), "feature_count"]) if curve_df["rmse_mean"].notna().any() else 0,
+        "feature_set_comparison_enabled": bool(compare_feature_sets),
+        "best_feature_set_name": best_feature_set_name or None,
+        "best_feature_set_metric": "mae" if compare_feature_sets else None,
+        "best_feature_set_feature_count": int(best_feature_set_feature_count) if compare_feature_sets else None,
+        "feature_set_comparison_path": str(comparison_csv_path) if compare_feature_sets else None,
     }
     with (output_dir / "feature_selection_manifest.json").open("w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2, ensure_ascii=False)
@@ -799,6 +1012,9 @@ def run_character_feature_bootstrap(
         shap_summary_path=str(output_dir / "shap_summary.png"),
         feature_curve_csv_path=str(output_dir / "feature_count_metrics.csv"),
         feature_curve_plot_path=str(output_dir / "feature_count_metrics.png"),
+        feature_set_comparison_csv_path=str(comparison_csv_path),
+        feature_set_comparison_json_path=str(comparison_json_path),
+        feature_set_comparison_plot_path=str(comparison_plot_path),
     )
 
 

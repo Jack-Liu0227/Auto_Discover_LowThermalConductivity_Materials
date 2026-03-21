@@ -3,10 +3,12 @@ Adapted from:
 https://github.com/karpathy/nanoGPT/blob/eba36e84649f3c6d840a93092cb779a260544d08/sample.py
 """
 import os
+import random
 from dataclasses import dataclass
 
 from contextlib import nullcontext
 from omegaconf import OmegaConf
+import numpy as np
 import torch
 
 from crystallm import (
@@ -38,10 +40,22 @@ if __name__ == "__main__":
     print("Using configuration:")
     print(OmegaConf.to_yaml(C))
 
-    torch.manual_seed(C.seed)
-    torch.cuda.manual_seed(C.seed)
-    torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
-    torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
+    random.seed(int(C.seed))
+    np.random.seed(int(C.seed) % (2**32 - 1))
+    torch.manual_seed(int(C.seed))
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(int(C.seed))
+        torch.cuda.manual_seed_all(int(C.seed))
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    except Exception:
+        pass
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     device_type = "cuda" if "cuda" in C.device else "cpu"  # for later use in torch.autocast
     ptdtype = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}[C.dtype]
     ctx = nullcontext() if device_type == "cpu" else torch.amp.autocast(device_type=device_type, dtype=ptdtype)

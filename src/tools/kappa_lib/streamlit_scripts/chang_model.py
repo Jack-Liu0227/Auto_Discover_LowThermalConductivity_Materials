@@ -35,7 +35,7 @@ def get_model_path(model_path):
     """
     import os
     import glob
-    model_path_list = glob.glob(os.path.join(model_path, '*-pre-trained.pth.tar'))
+    model_path_list = sorted(glob.glob(os.path.join(model_path, '*-pre-trained.pth.tar')))
     model_name_list = []
     for model_path in model_path_list:
         model_name = os.path.basename(model_path).split('-pre-trained.pth.tar')[0]

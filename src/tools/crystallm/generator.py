@@ -52,6 +52,7 @@ def generate_crystal_from_composition(
     num_samples: int = 1,
     top_k: int = 10,
     max_new_tokens: int = 2000,
+    seed: Optional[int] = None,
     session_id: Optional[str] = None,
     spacegroup: Optional[str] = None,
     output_dir: Optional[str] = None
@@ -65,6 +66,7 @@ def generate_crystal_from_composition(
         num_samples: Number of structures to generate (default: 1)
         top_k: Top-k sampling parameter (default: 10)
         max_new_tokens: Maximum tokens to generate (default: 2000)
+        seed: Random seed for reproducibility (optional)
         session_id: Session ID for unified storage (optional)
         spacegroup: Space group constraint (optional, e.g., "P4/nmm", "Fd-3m")
         output_dir: Custom output directory (optional, overrides session_id and default paths)
@@ -98,7 +100,14 @@ def generate_crystal_from_composition(
                    composition=composition,
                    device=device,
                    num_samples=num_samples,
+                   seed=seed,
                    generation_id=generation_id)
+
+        if seed is not None:
+            torch.manual_seed(int(seed))
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(int(seed))
+                torch.cuda.manual_seed_all(int(seed))
         
         # Step 1: Setup CrystaLLM path
         crystallm_path = _setup_crystallm_path()
@@ -194,6 +203,7 @@ def generate_crystal_from_composition(
             'num_samples': num_samples,
             'top_k': top_k,
             'max_new_tokens': max_new_tokens,
+            'seed': seed if seed is not None else 1337,
             'device': device,
             'exact_paths': True
         }
@@ -234,13 +244,13 @@ def generate_crystal_from_composition(
         # Step 7: Read the first generated CIF file
         # 优先使用后处理的 CIF 文件（postprocess_output_dir）
         # 后处理的文件通常质量更高，已经过验证和优化
-        cif_files = list(postprocess_output_dir.glob("**/*.cif"))
+        cif_files = sorted(postprocess_output_dir.glob("**/*.cif"), key=lambda p: str(p))
         cif_source = "postprocessed"
 
         if not cif_files:
             # 如果没有后处理的文件，尝试使用原始生成的文件
             logger.warning("No postprocessed CIF files found, trying raw structures")
-            cif_files = list(generate_dir.glob("**/*.cif"))
+            cif_files = sorted(generate_dir.glob("**/*.cif"), key=lambda p: str(p))
             cif_source = "raw"
 
         if not cif_files:

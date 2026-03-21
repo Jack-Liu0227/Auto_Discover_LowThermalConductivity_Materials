@@ -73,6 +73,7 @@ Thumbs.db
 bo_first_iteration/
 llm/*
 llm_*/
+bo_*/
 llm_first_version/
 bo_new_111/
 llm_beforedb/

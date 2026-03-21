@@ -258,7 +258,7 @@ class StructureDeduplicator:
             return {}
 
         if formula_dirs is None:
-            formula_dirs = [d.name for d in base_dir.iterdir() if d.is_dir()]
+            formula_dirs = sorted(d.name for d in base_dir.iterdir() if d.is_dir())
 
         results: Dict[str, Dict[str, Any]] = {}
         for formula in formula_dirs:

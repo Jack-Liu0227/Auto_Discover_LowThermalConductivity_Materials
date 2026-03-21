@@ -114,7 +114,7 @@ def deduplicate_success_materials(
                  
                  # Fuzzy match: the files in cif_files might have prefixes like 001_...
                  # We look for a file that ENDS with cif_name or contains it
-                 for f in os.listdir(cif_files_dir):
+                 for f in sorted(os.listdir(cif_files_dir)):
                      if f.endswith(cif_name) or (cif_name in f):
                          try: return Structure.from_file(os.path.join(cif_files_dir, f))
                          except: pass
@@ -122,7 +122,7 @@ def deduplicate_success_materials(
             # Try to match by structure ID
             sid = _pick(row, ['structure_id', '结构ID'])
             if sid is not None:
-                for f in os.listdir(cif_files_dir):
+                for f in sorted(os.listdir(cif_files_dir)):
                      if sid in f and f.endswith('.cif'):
                          try: return Structure.from_file(os.path.join(cif_files_dir, f))
                          except: pass

@@ -183,6 +183,7 @@ def run_structure_step(
         device=config["device"],
         gpus=config["gpus"],
         results_root=config["results_root"],
+        seed=config.get("seed"),
         tracker=tracker,
         allow_partial_completion=config.get("allow_partial_structure", False),
         path_config=config.get("path_config"),
@@ -583,7 +584,7 @@ def _aggregate_materials_from_results(results_root: str) -> dict[str, Any]:
             out_df["dedup_key"] = out_df.apply(
                 lambda r: f"{r['_summary_formula']}||{r['_summary_rel_path'] or r['_summary_sid'] or ''}", axis=1
             )
-            out_df = out_df.sort_values("_summary_kappa", ascending=True)
+            out_df = out_df.sort_values(["_summary_kappa", "_summary_formula", "dedup_key"], ascending=True, kind="mergesort")
             out_df = out_df.drop_duplicates(subset=["dedup_key"], keep="first")
             out_df = out_df.drop(columns=["_summary_formula", "_summary_rel_path", "_summary_sid", "_summary_kappa", "dedup_key"])
         else:
@@ -620,7 +621,7 @@ def _aggregate_materials_from_results(results_root: str) -> dict[str, Any]:
         all_df["dedup_key"] = all_df.apply(
             lambda r: f"{r['_summary_formula']}||{r['_summary_rel_path'] or r['_summary_sid'] or ''}", axis=1
         )
-        all_df = all_df.sort_values("_summary_kappa", ascending=True)
+        all_df = all_df.sort_values(["_summary_kappa", "_summary_formula", "dedup_key"], ascending=True, kind="mergesort")
         all_df = all_df.drop_duplicates(subset=["dedup_key"], keep="first")
         all_df = all_df.drop(columns=["_summary_formula", "_summary_rel_path", "_summary_sid", "_summary_kappa", "dedup_key"])
     output_path = summary_dir / "all_materials_summary.csv"

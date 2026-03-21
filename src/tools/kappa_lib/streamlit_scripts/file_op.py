@@ -152,7 +152,7 @@ def get_dir_crystalline_data(root_dir_path: str | Path) -> pd.DataFrame:
     """
     try:
         root_dir_path = Path(root_dir_path)
-        cif_paths = list(root_dir_path.glob('*.cif'))
+        cif_paths = sorted(root_dir_path.glob('*.cif'), key=lambda p: p.name)
 
         if not cif_paths:
             logger.warning(f"No CIF files found in {root_dir_path}")
@@ -227,7 +227,7 @@ def create_id_prop(root_dir_path: str | Path) -> Tuple[List[str], List[str]]:
     """
     try:
         # Get all CIF files in the directory
-        cif_path_list = glob.glob(os.path.join(root_dir_path, '*.[cC][iI][fF]'))
+        cif_path_list = sorted(glob.glob(os.path.join(root_dir_path, '*.[cC][iI][fF]')))
         if not cif_path_list:
             logger.warning(f"No CIF files found in {root_dir_path}")
             return [], []

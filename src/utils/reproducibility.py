@@ -11,6 +11,11 @@ def setup_reproducibility(seed: int = 42, deterministic_torch: bool = True) -> d
     """Apply process-level reproducibility settings."""
     seed = int(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
     # Required by some CUDA kernels for deterministic behavior.
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
@@ -26,6 +31,11 @@ def setup_reproducibility(seed: int = 42, deterministic_torch: bool = True) -> d
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)
             torch.cuda.manual_seed_all(seed)
+        try:
+            torch.set_num_threads(1)
+            torch.set_num_interop_threads(1)
+        except Exception:
+            pass
         if deterministic_torch:
             torch.use_deterministic_algorithms(True, warn_only=True)
             torch.backends.cudnn.deterministic = True
@@ -40,4 +50,3 @@ def setup_reproducibility(seed: int = 42, deterministic_torch: bool = True) -> d
         "torch_applied": torch_applied,
         "torch_error": torch_error,
     }
-

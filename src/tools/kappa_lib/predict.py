@@ -1,5 +1,6 @@
 import argparse
 import os
+import random
 import shutil
 import sys
 import time
@@ -40,6 +41,22 @@ args.cuda = not args.disable_cuda and torch.cuda.is_available()
 model_args = None
 best_mae_error = None
 
+
+def _apply_inference_reproducibility(seed: int = 123) -> None:
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    random.seed(seed)
+    np.random.seed(seed % (2**32 - 1))
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    except Exception:
+        pass
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 def initialize_model_args(model_path):
     """Initialize model parameters"""
     global model_args, best_mae_error
@@ -60,6 +77,8 @@ def initialize_model_args(model_path):
 
 def main(model_path, root_dir):
     global args, model_args, best_mae_error
+
+    _apply_inference_reproducibility(123)
     
     # Ensure model parameters are initialized
     if not model_args:
@@ -69,7 +88,7 @@ def main(model_path, root_dir):
     # 使用传入的 root_dir
     dataset = CIFData(root_dir)
     collate_fn = collate_pool
-    test_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
+    test_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                            num_workers=args.workers, collate_fn=collate_fn,
                            pin_memory=args.cuda)
 

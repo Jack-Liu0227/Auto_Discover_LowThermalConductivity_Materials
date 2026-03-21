@@ -64,7 +64,7 @@ def step_merge_results(iteration_num: int, results_root: str = "results", tracke
         return {"success": False, "error": "Relaxation directory not found"}
 
     merged_count = 0
-    for comp_dir in relax_dir.iterdir():
+    for comp_dir in sorted(relax_dir.iterdir(), key=lambda p: p.name):
         if not comp_dir.is_dir():
             continue
         if _merge_phonon_into_kappa(comp_dir):

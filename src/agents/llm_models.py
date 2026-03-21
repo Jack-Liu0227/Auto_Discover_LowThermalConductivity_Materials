@@ -32,8 +32,18 @@ def _normalize_base_url(value: str | None, default: str) -> str:
     return text or default
 
 
-def _resolve_actual_model(model_name: str) -> str:
+def _normalize_model_name(model_name: str | None, default: str = "deepseek-chat") -> str:
     normalized = (model_name or "").strip()
+    if not normalized:
+        return default
+    lower_name = normalized.lower()
+    if "deepseek" in lower_name:
+        return "deepseek-chat"
+    return normalized
+
+
+def _resolve_actual_model(model_name: str) -> str:
+    normalized = _normalize_model_name(model_name)
     if not normalized:
         return normalized
     if "/" in normalized:
@@ -66,14 +76,17 @@ def _model_entry(
 def get_llm_models_config() -> Dict[str, Any]:
     temperature = float(os.getenv("TEMPERATURE", "0.3"))
 
-    workflow_model_name = os.getenv("WORKFLOW_MODEL", "deepseek-chat").strip() or "deepseek-chat"
+    workflow_model_name = _normalize_model_name(os.getenv("WORKFLOW_MODEL", "deepseek-chat"))
     workflow_api_key = os.getenv("WORKFLOW_API_KEY", "").strip()
     workflow_base_url = _normalize_base_url(
         os.getenv("WORKFLOW_BASE_URL"),
         DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     )
 
-    theory_update_model_name = os.getenv("THEORY_UPDATE_MODEL", workflow_model_name).strip() or workflow_model_name
+    theory_update_model_name = _normalize_model_name(
+        os.getenv("THEORY_UPDATE_MODEL", workflow_model_name),
+        default=workflow_model_name,
+    )
     theory_update_api_key = os.getenv("THEORY_UPDATE_API_KEY", workflow_api_key).strip()
     theory_update_base_url = _normalize_base_url(
         os.getenv("THEORY_UPDATE_BASE_URL"),

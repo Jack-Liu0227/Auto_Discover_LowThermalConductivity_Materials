@@ -292,6 +292,7 @@ class CrystaLLMWrapper(BaseTool):
         from .crystallm.generator import generate_crystal_from_composition
         from pymatgen.io.vasp import Poscar
         from pymatgen.io.cif import CifParser
+        import random
         import shutil
 
         logger.info(f"Using CrystaLLM to generate {n_structures} structures for {composition.formula}")
@@ -309,6 +310,18 @@ class CrystaLLMWrapper(BaseTool):
             except:
                 pass
 
+        if seed is not None:
+            try:
+                import torch
+
+                random.seed(seed)
+                torch.manual_seed(seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed(seed)
+                    torch.cuda.manual_seed_all(seed)
+            except Exception as exc:
+                logger.warning(f"Failed to apply CrystaLLM seed {seed}: {exc}")
+
         # CrystaLLM一次生成多个结构
         result = generate_crystal_from_composition(
             composition=composition.formula,
@@ -316,6 +329,7 @@ class CrystaLLMWrapper(BaseTool):
             num_samples=n_structures,
             top_k=10,
             max_new_tokens=2000,
+            seed=seed,
             output_dir=str(self.output_dir)  # 使用 wrapper 的输出目录
         )
 
@@ -542,8 +556,7 @@ class CrystaLLMWrapper(BaseTool):
             from pymatgen.io.vasp import Poscar
             import numpy as np
 
-            if seed is not None:
-                np.random.seed(seed)
+            rng = np.random.default_rng(seed)
 
             logger.info(f"Generating {n_structures} structures with pymatgen for {composition.formula}")
 
@@ -553,12 +566,12 @@ class CrystaLLMWrapper(BaseTool):
             for i in range(n_structures):
                 try:
                     # 生成随机晶格参数
-                    a = np.random.uniform(4.0, 8.0)
-                    b = np.random.uniform(4.0, 8.0)
-                    c = np.random.uniform(4.0, 8.0)
-                    alpha = np.random.uniform(80, 100)
-                    beta = np.random.uniform(80, 100)
-                    gamma = np.random.uniform(80, 100)
+                    a = rng.uniform(4.0, 8.0)
+                    b = rng.uniform(4.0, 8.0)
+                    c = rng.uniform(4.0, 8.0)
+                    alpha = rng.uniform(80, 100)
+                    beta = rng.uniform(80, 100)
+                    gamma = rng.uniform(80, 100)
 
                     lattice = Lattice.from_parameters(a, b, c, alpha, beta, gamma)
 
@@ -568,7 +581,7 @@ class CrystaLLMWrapper(BaseTool):
                     for element, count in composition.elements.items():
                         for _ in range(int(count)):
                             species.append(element)
-                            coords.append(np.random.random(3))
+                            coords.append(rng.random(3))
 
                     # 创建Structure对象
                     pmg_structure = Structure(lattice, species, coords)

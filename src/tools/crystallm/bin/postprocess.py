@@ -89,7 +89,7 @@ if __name__ == "__main__":
             os.makedirs(output_path)
 
         # 遍历输入目录中的所有文件
-        for filename in os.listdir(input_path):
+        for filename in sorted(os.listdir(input_path)):
             # 只处理.cif后缀的文件
             if filename.endswith(".cif"):
                 # 读取文件内容

@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any
 from concurrent.futures import as_completed
+import hashlib
 import os
 import sys
 
@@ -28,6 +29,11 @@ _imports_done = False
 PMGComposition = None
 CrystaLLMWrapper = None
 Composition = None
+
+
+def _derive_seed(*parts: object) -> int:
+    payload = "::".join(str(part) for part in parts).encode("utf-8")
+    return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big") % (2**32 - 1)
 
 def _ensure_imports():
     """确保必要的导入完成"""
@@ -160,7 +166,8 @@ def generate_structures_parallel(
     pressure: float = 0.0,
     relax_output_dir: str = None,
     max_workers: int = 4,
-    gpus: List[str] = None
+    gpus: List[str] = None,
+    seed: int | None = None,
 ) -> List[Dict[str, Any]]:
     """
     并行生成多个组分的结构
@@ -175,6 +182,7 @@ def generate_structures_parallel(
         relax_output_dir: 弛豫输出目录
         max_workers: 最大并行数
         gpus: GPU列表，如果为None则使用device参数
+        seed: 随机种子基准值
     
     Returns:
         结果列表
@@ -195,15 +203,17 @@ def generate_structures_parallel(
         # 循环分配GPU
         assigned_gpu = gpus[i % len(gpus)]
         wrapper_config = {'device': assigned_gpu, 'output_dir': output_dir}
+        task_seed = _derive_seed(seed, "structure_generation", m.get('formula', ''), i, n_structures)
         gen_config = {
             'n_structures': n_structures,
             'relax_structures': relax_structures,
             'pressure': pressure,
             'relax_output_dir': relax_output_dir,
-            'calculate_properties': False  # 生成阶段仅保存结构，后续流程统一计算热导率/声子谱
+            'calculate_properties': False,  # 生成阶段仅保存结构，后续流程统一计算热导率/声子谱
+            'seed': task_seed,
         }
         tasks.append((i, m, wrapper_config, gen_config))
-        logger.info(f"  任务 {i+1}: {m.get('formula', 'Unknown')} -> {assigned_gpu}")
+        logger.info(f"  任务 {i+1}: {m.get('formula', 'Unknown')} -> {assigned_gpu} (seed={task_seed})")
     
     results = [None] * len(materials)
 

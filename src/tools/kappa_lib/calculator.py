@@ -69,7 +69,7 @@ class ThermalConductivityCalculator:
             else:
                 raise FileNotFoundError(f"CIF directory not found: {self.cif_dir_path}")
         
-        cif_files = glob.glob(os.path.join(self.cif_dir_path, '*.cif'))
+        cif_files = sorted(glob.glob(os.path.join(self.cif_dir_path, '*.cif')))
         if not cif_files:
             raise ValueError(f"No CIF files found in: {self.cif_dir_path}")
         
@@ -122,7 +122,10 @@ class ThermalConductivityCalculator:
                 raise ValueError("Failed to extract crystal data")
             
             # Merge crystal data with predictions
-            whole_info_df = pd.merge(all_cry_df, pre_df, left_index=True, right_index=True)
+            all_cry_df = all_cry_df.sort_index(kind="mergesort")
+            pre_df = pre_df.sort_index(kind="mergesort")
+            whole_info_df = pd.merge(all_cry_df, pre_df, left_index=True, right_index=True, sort=False)
+            whole_info_df = whole_info_df.sort_index(kind="mergesort")
             
             if whole_info_df.empty:
                 raise ValueError("Failed to merge crystal data with predictions")
@@ -273,4 +276,3 @@ _atom_site_fract_z
 def is_kappa_available() -> bool:
     """Check if kappa library is available."""
     return KAPPA_AVAILABLE
-

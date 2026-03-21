@@ -31,6 +31,7 @@ class CrystalStructureGenerator:
             'num_samples': 20,
             'top_k': 20,
             'max_new_tokens': 3000,
+            'seed': 1337,
             'device': 'cuda',
             # 生成参数
             'out_dir': 'pre-trained-model/crystallm_v1_small',
@@ -61,6 +62,7 @@ class CrystalStructureGenerator:
             'num_samples': self.params['num_samples'],
             'top_k': self.params['top_k'],
             'max_new_tokens': self.params['max_new_tokens'],
+            'seed': self.params['seed'],
             'device': self.params['device'],
             'target': self.params['target'],
             'generate_dir': self.params['generate_dir'] if use_exact else os.path.join(self.params['generate_dir'], composition)

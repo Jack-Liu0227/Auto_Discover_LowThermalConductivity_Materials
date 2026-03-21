@@ -14,6 +14,7 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path
 import time
 import logging
+import hashlib
 import numpy as np
 import tempfile
 import os
@@ -312,8 +313,10 @@ class Ai4KappaWrapper(BaseTool):
         temperature: float
     ) -> MaterialProperties:
         """生成模拟性能数据（用于测试）"""
-        # 模拟热导率：0.1-3.0 W/(m·K)
-        k = np.random.uniform(0.1, 3.0)
+        seed_payload = f"{structure.composition.formula}::{structure.structure_id}::{temperature}".encode("utf-8")
+        seed = int.from_bytes(hashlib.sha256(seed_payload).digest()[:8], "big") % (2**32 - 1)
+        rng = np.random.default_rng(seed)
+        k = rng.uniform(0.1, 3.0)
 
         properties = MaterialProperties(
             composition=structure.composition,
@@ -321,9 +324,9 @@ class Ai4KappaWrapper(BaseTool):
             thermal_conductivity=k,
             k_lattice=k * 0.8,
             k_electronic=k * 0.2,
-            seebeck_coefficient=np.random.uniform(100, 300),
-            electrical_conductivity=np.random.uniform(1e4, 1e6),
-            zt_value=np.random.uniform(0.1, 1.5),
+            seebeck_coefficient=rng.uniform(100, 300),
+            electrical_conductivity=rng.uniform(1e4, 1e6),
+            zt_value=rng.uniform(0.1, 1.5),
             temperature=temperature
         )
         return properties

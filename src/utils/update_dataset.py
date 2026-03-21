@@ -117,7 +117,12 @@ def update_dataset(
             subset_cols = feature_cols
 
         # 2. Sort by k(W/Km) ascending so that 'first' keeps the lowest value
-        df_combined.sort_values(by='k(W/Km)', ascending=True, inplace=True)
+        sort_cols = ['k(W/Km)']
+        ascending = [True]
+        if 'Formula' in df_combined.columns:
+            sort_cols.append('Formula')
+            ascending.append(True)
+        df_combined.sort_values(by=sort_cols, ascending=ascending, inplace=True, kind='mergesort')
         
         # 3. Deduplicate 
         df_combined.drop_duplicates(subset=subset_cols, keep='first', inplace=True)

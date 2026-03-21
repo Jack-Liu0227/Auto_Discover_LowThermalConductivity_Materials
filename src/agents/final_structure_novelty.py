@@ -455,6 +455,15 @@ def compare_final_materials_to_databases(
             f"AFLOW(records={aflow.get('records', 0)}, err={aflow.get('error')})"
         )
 
+    rows_out = sorted(
+        rows_out,
+        key=lambda item: (
+            str(item.get("source_type") or ""),
+            str(item.get("formula") or ""),
+            str(item.get("local_structure_path") or ""),
+        ),
+    )
+
     output_dir = Path(results_root) / f"iteration_{iteration_num}" / "success_examples"
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "final_materials_db_novelty.csv"
@@ -480,11 +489,16 @@ def compare_final_materials_to_databases(
     if summary_csv.exists():
         try:
             df_old = pd.read_csv(summary_csv, encoding="utf-8-sig")
+            if "iteration" in df_old.columns:
+                df_old = df_old[df_old["iteration"] != iteration_num]
             df_all = pd.concat([df_old, df_new], ignore_index=True)
         except Exception:
             df_all = df_new
     else:
         df_all = df_new
+    sort_cols = [col for col in ["iteration", "source_type", "formula", "local_structure_path"] if col in df_all.columns]
+    if sort_cols:
+        df_all = df_all.sort_values(by=sort_cols, kind="mergesort", na_position="last")
     df_all.to_csv(summary_csv, index=False, encoding="utf-8-sig")
 
     return {

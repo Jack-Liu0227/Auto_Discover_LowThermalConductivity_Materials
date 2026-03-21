@@ -7,6 +7,8 @@ Workflow Step 4: Structure Generation and Calculation
 import os
 import sys
 import csv
+import hashlib
+import random
 from pathlib import Path
 
 import matplotlib
@@ -76,12 +78,39 @@ def normalize_formula(formula: str) -> str:
     return normalized
 
 
+def _derive_seed(*parts: object) -> int:
+    payload = "::".join(str(part) for part in parts).encode("utf-8")
+    return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big") % (2**32 - 1)
+
+
+def _apply_task_seed(seed: int | None) -> None:
+    if seed is None:
+        return
+    random.seed(seed)
+    try:
+        import numpy as np
+
+        np.random.seed(seed % (2**32 - 1))
+    except Exception:
+        pass
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+    except Exception:
+        pass
+
+
 def relax_structure_worker(args):
     """Relax one structure and run phonon calculation."""
-    cif_path, formula, relax_base_dir, pressure, gpu_device = args
+    cif_path, formula, relax_base_dir, pressure, gpu_device, task_seed = args
     import os
 
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:128"
+    _apply_task_seed(task_seed)
     if gpu_device and ":" in gpu_device:
         gpu_id = gpu_device.split(":")[-1]
         os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
@@ -297,10 +326,11 @@ def run_relax_task_with_timeout(task, timeout_sec: int):
 
 def calculate_kappa_worker(args):
     """鍗曚釜鏉愭枡鐨勭儹瀵肩巼璁＄畻浠诲姟"""
-    comp_dir, formula = args
+    comp_dir, formula, task_seed = args
 
     import time
     time.sleep(0.5)
+    _apply_task_seed(task_seed)
 
     try:
         from pathlib import Path
@@ -391,6 +421,7 @@ def step_structure_calculation(
     device: str = "cuda",
     gpus: list = None,
     results_root: str = "results",
+    seed: int | None = None,
     tracker=None,
     allow_partial_completion: bool = False,
     path_config=None,
@@ -410,6 +441,7 @@ def step_structure_calculation(
         device: 计算设备
         gpus: GPU 列表；如果为 None 则使用 device 参数
         results_root: 结果存储根目录
+        seed: 随机种子基准值
         tracker: 进度跟踪器实例
 
     Returns:
@@ -565,6 +597,7 @@ def step_structure_calculation(
                 relax_structures=False,
                 max_workers=max_workers,
                 gpus=gpus,
+                seed=seed,
             )
 
             success_count = sum(1 for r in gen_results if r.get("success"))
@@ -666,7 +699,8 @@ def step_structure_calculation(
                     if allow_partial_completion and cif_file.name in attempted_cifs:
                         continue
                     assigned_gpu = gpus[task_idx % len(gpus)]
-                    relax_tasks.append((str(cif_file), formula, str(relax_output_dir), pressure, assigned_gpu))
+                    task_seed = _derive_seed(seed, "relax", iteration_num, formula, cif_file.name)
+                    relax_tasks.append((str(cif_file), formula, str(relax_output_dir), pressure, assigned_gpu, task_seed))
                     task_idx += 1
 
         if tracker and not tracker.is_substep_completed(iteration_num, "structure_calculation", SUBSTEP_GENERATION):
@@ -919,7 +953,8 @@ def step_structure_calculation(
 
             if comp_dir.exists() and _get_relaxed_cifs(formula):
                 if not csv_file.exists():
-                    kappa_tasks.append((str(comp_dir), formula))
+                    task_seed = _derive_seed(seed, "kappa", iteration_num, formula)
+                    kappa_tasks.append((str(comp_dir), formula, task_seed))
 
         if kappa_tasks:
             print(f"[INFO] 正在为 {len(kappa_tasks)} 个材料计算热导率...")

@@ -13,6 +13,7 @@ from pathlib import Path
 import os
 import time
 import logging
+import hashlib
 
 # Limit BLAS/OMP threads before importing numpy/torch to reduce oversubscription.
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -658,14 +659,16 @@ class MattersimWrapper(BaseTool):
         structure: CrystalStructure
     ) -> StabilityResult:
         """生成模拟稳定性数据（用于测试）"""
-        # 随机生成稳定性结果
-        is_stable = np.random.random() > 0.3  # 70%概率稳定
+        seed_payload = f"{structure.composition.formula}::{structure.structure_id}".encode("utf-8")
+        seed = int.from_bytes(hashlib.sha256(seed_payload).digest()[:8], "big") % (2**32 - 1)
+        rng = np.random.default_rng(seed)
+        is_stable = rng.random() > 0.3  # 70%概率稳定
 
         if is_stable:
-            min_freq = np.random.uniform(0.0, 2.0)  # THz
+            min_freq = rng.uniform(0.0, 2.0)  # THz
             has_imaginary = False
         else:
-            min_freq = np.random.uniform(-1.0, -0.1)  # THz
+            min_freq = rng.uniform(-1.0, -0.1)  # THz
             has_imaginary = True
 
         result = StabilityResult(
