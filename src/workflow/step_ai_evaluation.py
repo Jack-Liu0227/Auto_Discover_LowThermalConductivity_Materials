@@ -1,9 +1,11 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Workflow Step 3: AI Material Evaluation
 """
-import sys
+from __future__ import annotations
+
 import shutil
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -14,9 +16,10 @@ sys.path.insert(0, str(project_root / "src"))
 
 from agents.material_evaluator import (
     MaterialEvaluator,
-    save_evaluation_report,
+    _extract_candidate_scores,
     _extract_selected_materials,
     _limit_selected_materials,
+    save_evaluation_report,
 )
 from utils.path_config import PathConfig
 
@@ -64,12 +67,10 @@ def _resolve_theory_doc_path(
         return expected_doc_path
 
     if expected_doc_path:
-        print(f"⚠️  理论文档不存在: {expected_doc_path}")
+        print(f"WARNING theory document missing: {expected_doc_path}")
 
     llm_doc_root = path_config.doc_root if path_config and path_config.doc_root else (project_root / doc_root)
     candidate_paths: list[Path] = []
-
-    # 0) Explicit round-0 baseline document
     candidate_paths.append(project_root / "doc" / CANONICAL_DOC_NAME)
 
     for i in range(iteration_num - 1, -1, -1):
@@ -111,15 +112,14 @@ def _resolve_theory_doc_path(
         canonical_target.parent.mkdir(parents=True, exist_ok=True)
         if resolved != canonical_target and not canonical_target.exists():
             shutil.copy2(resolved, canonical_target)
-            print(f"📄 已回填理论文档到: {canonical_target}")
-    except Exception as e:
-        print(f"⚠️  回填理论文档失败: {e}")
+            print(f"INFO backfilled theory document to: {canonical_target}")
+    except Exception as exc:
+        print(f"WARNING failed to backfill theory document: {exc}")
 
     return resolved
 
 
 def normalize_formula(formula: str) -> str:
-    """Normalize common subscript unicode characters to plain digits."""
     subscript_map = {
         "₀": "0",
         "₁": "1",
@@ -142,30 +142,30 @@ def step_ai_evaluation(
     iteration_num: int,
     candidate_materials: list,
     n_select: int = 5,
+    evaluation_mode: str = "selected_materials",
     path_config: Optional[PathConfig] = None,
-    # Backward-compatible args
     results_root: str = "llm/results",
     doc_root: str = "llm/doc",
-    init_doc_path: str = None,
+    init_doc_path: str | None = None,
     extra_instructions: str | None = None,
 ):
     """
     Step 3: AI material evaluation.
 
-    Returns:
-        dict: selected materials and related paths.
+    Returns either final selected materials or full candidate scores depending on
+    evaluation_mode.
     """
     print("=" * 80)
-    print(f"步骤 3: AI 材料评估 (Iteration {iteration_num})")
+    print(f"Step 3: AI Material Evaluation (Iteration {iteration_num})")
     print("=" * 80)
 
     if path_config:
         try:
-            _results_root = str(path_config.results_root.relative_to(path_config.project_root))
+            resolved_results_root = str(path_config.results_root.relative_to(path_config.project_root))
         except Exception:
-            _results_root = results_root
+            resolved_results_root = results_root
     else:
-        _results_root = results_root
+        resolved_results_root = results_root
 
     doc_path = _resolve_theory_doc_path(
         iteration_num=iteration_num,
@@ -176,43 +176,60 @@ def step_ai_evaluation(
     )
 
     if not doc_path or not doc_path.exists():
-        print("❌ 找不到任何理论文档")
+        print("ERROR theory document not found")
         return {
             "success": False,
             "error": "Theory document not found",
         }
 
-    print(f"📄 使用理论文档: {doc_path}")
-    print(f"🔵 候选材料数量: {len(candidate_materials)}")
-    print(f"🎯 目标筛选数量: {n_select}")
+    print(f"theory document: {doc_path}")
+    print(f"candidate count: {len(candidate_materials)}")
+    print(f"target select count: {n_select}")
+    print(f"evaluation mode: {evaluation_mode}")
 
     try:
         evaluator = MaterialEvaluator(doc_path=str(doc_path))
-
+        normalized_mode = "candidate_scores" if evaluation_mode == "candidate_scores" else "selected_materials"
         evaluation_result = evaluator.evaluate_materials(
             candidate_materials,
             n_select=n_select,
             iteration_num=iteration_num,
-            results_root=_results_root,
+            results_root=resolved_results_root,
             extra_instructions=extra_instructions,
+            evaluation_mode=normalized_mode,
         )
 
-        report_path = save_evaluation_report(evaluation_result)
-        print(f"✅ AI 评估报告已保存: {report_path}")
+        artifact_path = save_evaluation_report(evaluation_result)
+        print(f"saved evaluation artifact: {artifact_path}")
+
+        if normalized_mode == "candidate_scores":
+            candidate_scores = _extract_candidate_scores(evaluation_result["evaluation"])
+            if not candidate_scores:
+                print("ERROR no candidate scores extracted")
+                return {
+                    "success": False,
+                    "error": "No candidate scores extracted",
+                }
+            return {
+                "success": True,
+                "n_candidates": len(candidate_scores),
+                "candidate_scores": candidate_scores,
+                "csv_path": str(artifact_path) if artifact_path else None,
+                "report_path": str(
+                    project_root / resolved_results_root / f"iteration_{iteration_num}" / "reports" / "llm_candidate_scoring_output.md"
+                ),
+            }
 
         selected_materials = _limit_selected_materials(
             _extract_selected_materials(evaluation_result["evaluation"]),
             n_select,
         )
-
         if not selected_materials:
-            print("❌ 未能提取筛选材料")
+            print("ERROR no materials selected")
             return {
                 "success": False,
                 "error": "No materials selected",
             }
-
-        print(f"✅ 成功筛选 {len(selected_materials)} 个材料")
 
         selected_csv_dir = project_root / results_root / f"iteration_{iteration_num}" / "selected_results"
         selected_csv_dir.mkdir(parents=True, exist_ok=True)
@@ -223,24 +240,26 @@ def step_ai_evaluation(
             df_selected["formula"] = df_selected["formula"].apply(normalize_formula)
 
         df_selected.to_csv(selected_csv_path, index=False, encoding="utf-8-sig")
-        print(f"💾 已保存筛选结果到: {selected_csv_path}")
+        print(f"saved selected materials to: {selected_csv_path}")
 
         return {
             "success": True,
             "n_selected": len(selected_materials),
             "selected_materials": selected_materials,
             "csv_path": str(selected_csv_path),
-            "report_path": report_path,
+            "report_path": str(
+                project_root / resolved_results_root / f"iteration_{iteration_num}" / "reports" / "llm_evaluation_output.md"
+            ),
         }
 
-    except Exception as e:
-        print(f"❌ AI 评估失败: {e}")
+    except Exception as exc:
+        print(f"ERROR AI evaluation failed: {exc}")
         import traceback
 
         traceback.print_exc()
         return {
             "success": False,
-            "error": str(e),
+            "error": str(exc),
         }
 
 
@@ -258,4 +277,4 @@ if __name__ == "__main__":
     ]
 
     result = step_ai_evaluation(args.iteration, mock_materials, args.n_select)
-    print(f"\n结果: {result}")
+    print(f"\nresult: {result}")

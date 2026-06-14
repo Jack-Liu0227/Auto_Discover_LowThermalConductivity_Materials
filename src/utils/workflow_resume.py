@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +69,9 @@ def load_saved_extract_result(results_root: str | Path, iteration_num: int) -> d
 
 
 def load_saved_ai_evaluation_result(results_root: str | Path, iteration_num: int) -> dict[str, Any] | None:
-    selected_path = Path(results_root) / f"iteration_{iteration_num}" / "selected_results" / "ai_selected_materials.csv"
+    base_dir = Path(results_root) / f"iteration_{iteration_num}" / "selected_results"
+    selected_path = base_dir / "ai_selected_materials.csv"
+    trace_path = base_dir / "selection_trace.json"
     if not selected_path.exists():
         return None
 
@@ -77,13 +80,27 @@ def load_saved_ai_evaluation_result(results_root: str | Path, iteration_num: int
     except Exception:
         return None
 
+    trace_payload: dict[str, Any] = {}
+    if trace_path.exists():
+        try:
+            trace_payload = json.loads(trace_path.read_text(encoding="utf-8"))
+        except Exception:
+            trace_payload = {}
+
+    evaluation_report = Path(results_root) / f"iteration_{iteration_num}" / "reports" / "llm_evaluation_output.md"
+    candidate_report = Path(results_root) / f"iteration_{iteration_num}" / "reports" / "llm_candidate_scoring_output.md"
+    report_path = candidate_report if candidate_report.exists() and not evaluation_report.exists() else evaluation_report
+
     return {
         "success": True,
         "skipped": True,
         "n_selected": len(df),
         "selected_materials": df.to_dict(orient="records"),
         "csv_path": str(selected_path),
-        "report_path": str(Path(results_root) / f"iteration_{iteration_num}" / "reports" / "llm_evaluation_output.md"),
+        "trace_path": str(trace_path) if trace_path.exists() else None,
+        "selection_trace": trace_payload.get("rows", []),
+        "screening_mode": trace_payload.get("screening_mode"),
+        "report_path": str(report_path),
     }
 
 
@@ -148,6 +165,7 @@ def reconcile_progress_with_filesystem(tracker, path_config) -> list[str]:
         ]
         all_samples_path = results_root / f"iteration_{iteration_num}" / "selected_results" / "all_samples.csv"
         ai_selected_path = results_root / f"iteration_{iteration_num}" / "selected_results" / "ai_selected_materials.csv"
+        selection_trace_path = results_root / f"iteration_{iteration_num}" / "selected_results" / "selection_trace.json"
         processed_dir = results_root / f"iteration_{iteration_num}" / "processed_structures"
         relax_dir = results_root / f"iteration_{iteration_num}" / "MyRelaxStructure"
         success_dir = results_root / f"iteration_{iteration_num}" / "success_examples"
@@ -164,7 +182,9 @@ def reconcile_progress_with_filesystem(tracker, path_config) -> list[str]:
             messages.append(f"iteration_{iteration_num}: reset {reset_steps} because BO artifacts are missing")
             continue
 
-        if round_data.get("ai_evaluation", {}).get("completed") and not ai_selected_path.exists():
+        if round_data.get("ai_evaluation", {}).get("completed") and (
+            not ai_selected_path.exists() or not selection_trace_path.exists()
+        ):
             reset_steps = reset_steps_from(tracker, iteration_num, "ai_evaluation")
             messages.append(f"iteration_{iteration_num}: reset {reset_steps} because AI screening artifacts are missing")
             continue

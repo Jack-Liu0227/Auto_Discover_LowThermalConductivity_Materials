@@ -131,6 +131,7 @@ def relax_structure_worker(args):
     except Exception as e:
         print(f"  [Worker] GPU娓呯悊璀﹀憡: {e}")
 
+    mattersim = None
     try:
         from tools.mattersim_wrapper import MattersimWrapper
         from ase.io import write as ase_write
@@ -272,6 +273,11 @@ def relax_structure_worker(args):
         }
     finally:
         try:
+            if mattersim is not None:
+                mattersim.close()
+        except Exception:
+            pass
+        try:
             import torch
             import gc
             import time
@@ -292,36 +298,92 @@ def _timeout_worker(task, queue):
     queue.put(res)
 
 
-def run_relax_task_with_timeout(task, timeout_sec: int):
+def run_relax_task_with_timeout(
+    task,
+    timeout_sec: int,
+    prefer_subprocess: bool | None = None,
+    allow_in_process_fallback: bool = True,
+):
     import multiprocessing
     from pathlib import Path as _Path
 
+    def _run_in_process():
+        try:
+            return relax_structure_worker(task)
+        except Exception as exc:
+            return {
+                "success": False,
+                "formula": task[1],
+                "cif_file": _Path(task[0]).name,
+                "error": str(exc),
+            }
+
+    if prefer_subprocess is None:
+        prefer_subprocess = os.name != "nt"
+
+    if not prefer_subprocess:
+        return _run_in_process()
+
     ctx = multiprocessing.get_context("spawn")
     result_queue = ctx.Queue()
+    proc = None
 
-    proc = ctx.Process(target=_timeout_worker, args=(task, result_queue))
-    proc.start()
-    proc.join(timeout_sec)
-
-    if proc.is_alive():
-        proc.terminate()
-        proc.join(5)
+    try:
+        proc = ctx.Process(target=_timeout_worker, args=(task, result_queue))
+        proc.start()
+    except Exception as exc:
+        if allow_in_process_fallback:
+            print(f"  [WARN] Failed to start isolated relax worker, falling back in-process: {exc}")
+            try:
+                result_queue.close()
+                result_queue.join_thread()
+            except Exception:
+                pass
+            return _run_in_process()
         return {
             "success": False,
             "formula": task[1],
             "cif_file": _Path(task[0]).name,
-            "error": "Timeout",
+            "error": f"Failed to start worker process: {exc}",
         }
 
     try:
-        return result_queue.get_nowait()
-    except Exception:
-        return {
-            "success": False,
-            "formula": task[1],
-            "cif_file": _Path(task[0]).name,
-            "error": "No result",
-        }
+        proc.join(timeout_sec)
+
+        if proc.is_alive():
+            if hasattr(proc, "kill"):
+                proc.kill()
+            else:
+                proc.terminate()
+            proc.join(5)
+            return {
+                "success": False,
+                "formula": task[1],
+                "cif_file": _Path(task[0]).name,
+                "error": "Timeout",
+            }
+
+        try:
+            return result_queue.get_nowait()
+        except Exception:
+            error = "No result" if proc.exitcode in (0, None) else f"Worker exited with code {proc.exitcode}"
+            return {
+                "success": False,
+                "formula": task[1],
+                "cif_file": _Path(task[0]).name,
+                "error": error,
+            }
+    finally:
+        try:
+            result_queue.close()
+            result_queue.join_thread()
+        except Exception:
+            pass
+        if proc is not None:
+            try:
+                proc.close()
+            except Exception:
+                pass
 
 
 def calculate_kappa_worker(args):
@@ -426,6 +488,8 @@ def step_structure_calculation(
     allow_partial_completion: bool = False,
     path_config=None,
     relax_timeout_sec: int = 120,
+    prefer_isolated_relax_process: bool | None = None,
+    allow_in_process_relax_fallback: bool = True,
 ):
     """
     步骤 4：结构生成与计算。
@@ -460,6 +524,9 @@ def step_structure_calculation(
 
     gen_output_dir = project_root / results_root / f"iteration_{iteration_num}" / "processed_structures"
     relax_output_dir = project_root / results_root / f"iteration_{iteration_num}" / "MyRelaxStructure"
+
+    if prefer_isolated_relax_process is None:
+        prefer_isolated_relax_process = os.name != "nt"
 
     def _append_relax_phonon_log(comp_dir: Path, row: dict):
         """鍐欏叆寮涜鲍/澹板瓙璋盋SV璁板綍"""
@@ -674,6 +741,9 @@ def step_structure_calculation(
             os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
             print(f"  [INFO] 单 GPU 模式: 限制 CUDA_VISIBLE_DEVICES={gpu_id}")
 
+        mode_label = "isolated subprocess" if prefer_isolated_relax_process else "in-process"
+        print(f"  [INFO] Relax worker mode: {mode_label}")
+
         relax_tasks = []
         task_idx = 0
         materials_with_structures = []
@@ -767,7 +837,12 @@ def step_structure_calculation(
                 materials_progress = current_meta.get("materials_progress", {})
 
             for i, task in enumerate(relax_tasks):
-                res = run_relax_task_with_timeout(task, relax_timeout_sec)
+                res = run_relax_task_with_timeout(
+                    task,
+                    relax_timeout_sec,
+                    prefer_subprocess=prefer_isolated_relax_process,
+                    allow_in_process_fallback=allow_in_process_relax_fallback,
+                )
                 processed_count += 1
 
                 formula = res.get("formula")

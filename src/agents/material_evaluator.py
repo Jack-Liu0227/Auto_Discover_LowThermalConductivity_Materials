@@ -10,7 +10,7 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 import pandas as pd
 
@@ -46,6 +46,7 @@ class MaterialEvaluator:
         iteration_num: int = 1,
         results_root: str = "results",
         extra_instructions: str | None = None,
+        evaluation_mode: Literal["selected_materials", "candidate_scores"] = "selected_materials",
     ) -> Dict:
         print("\n" + "=" * 80)
         print("Material Evaluation")
@@ -59,14 +60,23 @@ class MaterialEvaluator:
 
         materials_info = self._format_materials_info(top_materials)
         websearch_info = self._format_websearch_summary(top_materials, iteration_num)
-        prompt = self._build_evaluation_prompt(
-            materials_info,
-            websearch_info,
-            n_select,
-            extra_instructions=extra_instructions,
-        )
+        if evaluation_mode == "candidate_scores":
+            prompt = self._build_candidate_scoring_prompt(
+                materials_info,
+                websearch_info,
+                extra_instructions=extra_instructions,
+            )
+            report_stem = "llm_candidate_scoring"
+        else:
+            prompt = self._build_evaluation_prompt(
+                materials_info,
+                websearch_info,
+                n_select,
+                extra_instructions=extra_instructions,
+            )
+            report_stem = "llm_evaluation"
 
-        input_file = self._save_input(prompt, iteration_num, results_root)
+        input_file = self._save_input(prompt, iteration_num, results_root, report_stem=report_stem)
         print(f"[evaluator] saved llm input: {input_file}")
 
         print("[evaluator] requesting LLM evaluation...")
@@ -79,9 +89,10 @@ class MaterialEvaluator:
             )
         except Exception as e:
             print(f"[evaluator] llm call failed, fallback to empty selection: {e}")
-            evaluation = json.dumps({"selected_materials": []}, ensure_ascii=False)
+            fallback_key = "candidate_scores" if evaluation_mode == "candidate_scores" else "selected_materials"
+            evaluation = json.dumps({fallback_key: []}, ensure_ascii=False)
 
-        output_file = self._save_output(evaluation, iteration_num, results_root)
+        output_file = self._save_output(evaluation, iteration_num, results_root, report_stem=report_stem)
         print(f"[evaluator] saved llm output: {output_file}")
 
         return {
@@ -91,6 +102,7 @@ class MaterialEvaluator:
             "evaluation": evaluation,
             "n_candidates": len(top_materials),
             "n_selected": n_select,
+            "evaluation_mode": evaluation_mode,
             "input_file": input_file,
             "output_file": output_file,
             "results_root": results_root,
@@ -469,10 +481,101 @@ You are a materials science expert. Based on the above theoretical principles do
 """
         return prompt
 
-    def _save_input(self, prompt: str, iteration_num: int, results_root: str = "results") -> str:
+    def _build_candidate_scoring_prompt(
+        self,
+        materials_info: str,
+        websearch_info: str,
+        extra_instructions: str | None = None,
+    ) -> str:
+        extra_instruction_block = ""
+        if extra_instructions:
+            extra_instruction_block = f"""
+
+4. **Additional Scoring Constraints**:
+{extra_instructions}
+"""
+        return f"""# Low Thermal Conductivity Candidate Scoring Task
+
+## Theoretical Principles Document
+
+{self.doc_content}
+
+---
+
+## Candidate Materials Information
+
+{materials_info}
+
+---
+
+## WebSearch Evidence
+
+{websearch_info}
+
+---
+
+## Scoring Task
+
+You are a materials science expert. Score every candidate using the theory document as the mechanism-analysis guide while still accounting for the candidate parameters shown above.
+
+**Scoring Requirements**:
+
+1. **Decision Goal**:
+   - Help a BO-dominant workflow decide which candidates deserve to remain in the final retained list.
+   - Use the theory document to judge mechanism fit and stability risk.
+   - Do not ignore BO-side evidence such as predicted thermal conductivity, uncertainty, EI/score, and original rank.
+   - The theory document should guide mechanism interpretation, but it must not override strong BO evidence without strong risk evidence.
+
+2. **Required Scores**:
+   - `mechanism_fit_score`: integer 0-10, higher means stronger support for low lattice thermal conductivity mechanisms.
+   - `stability_risk_score`: integer 0-10, higher means more severe stability or feasibility risk.
+   - `novelty_bonus_score`: integer 0-10, higher means stronger novelty or under-explored upside.
+   - `bo_override_confidence`: integer 0-10, higher means you are confident the theory evidence should materially affect BO ordering.
+
+3. **Output Coverage**:
+   - Score every candidate exactly once.
+   - Preserve candidate identity using the provided formula and original rank.
+   - Keep `short_reason` and `main_risk` concise and specific.
+{extra_instruction_block}
+
+4. **Output Format**: Return JSON strictly in this schema:
+
+```json
+{{
+  "candidate_scores": [
+    {{
+      "formula": "Bi2Te3",
+      "original_rank": 3,
+      "mechanism_fit_score": 8,
+      "stability_risk_score": 4,
+      "novelty_bonus_score": 6,
+      "bo_override_confidence": 7,
+      "short_reason": "brief mechanism justification",
+      "main_risk": "brief main uncertainty"
+    }}
+  ]
+}}
+```
+
+**Strict Requirements**:
+- Score all provided candidates.
+- All four scores must be integers from 0 to 10.
+- `original_rank` must match the shown candidate order.
+- Do not output any material outside the provided candidate list.
+- JSON must be directly parsable by Python json.loads().
+- Do not output any text outside JSON.
+"""
+
+    def _save_input(
+        self,
+        prompt: str,
+        iteration_num: int,
+        results_root: str = "results",
+        report_stem: str = "llm_evaluation",
+    ) -> str:
         output_dir = Path(f"{results_root}/iteration_{iteration_num}/reports")
         output_dir.mkdir(parents=True, exist_ok=True)
-        input_file = output_dir / "llm_evaluation_input.md"
+        input_file = output_dir / f"{report_stem}_input.md"
 
         with open(input_file, "w", encoding="utf-8") as f:
             f.write("# Material Evaluation - LLM Input\n\n")
@@ -484,10 +587,16 @@ You are a materials science expert. Based on the above theoretical principles do
 
         return str(input_file)
 
-    def _save_output(self, response: str, iteration_num: int, results_root: str = "results") -> str:
+    def _save_output(
+        self,
+        response: str,
+        iteration_num: int,
+        results_root: str = "results",
+        report_stem: str = "llm_evaluation",
+    ) -> str:
         output_dir = Path(f"{results_root}/iteration_{iteration_num}/reports")
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / "llm_evaluation_output.md"
+        output_file = output_dir / f"{report_stem}_output.md"
 
         with open(output_file, "w", encoding="utf-8") as f:
             f.write("# Material Evaluation - LLM Output\n\n")
@@ -551,6 +660,60 @@ def _extract_selected_materials(evaluation_text: str) -> list:
     return selected
 
 
+def _extract_candidate_scores(evaluation_text: str) -> list[dict[str, Any]]:
+    parsed = MaterialEvaluator._parse_json_object(evaluation_text)
+    if not parsed:
+        return []
+
+    raw_scores = parsed.get("candidate_scores", [])
+    if not isinstance(raw_scores, list):
+        return []
+
+    extracted: list[dict[str, Any]] = []
+    for row in raw_scores:
+        if not isinstance(row, dict):
+            continue
+        formula = str(row.get("formula", "")).strip()
+        if not formula:
+            continue
+        try:
+            original_rank = int(row.get("original_rank"))
+        except Exception:
+            continue
+
+        def _score(name: str) -> int:
+            try:
+                value = int(row.get(name))
+            except Exception:
+                value = 0
+            return max(0, min(10, value))
+
+        extracted.append(
+            {
+                "formula": formula,
+                "original_rank": original_rank,
+                "mechanism_fit_score": _score("mechanism_fit_score"),
+                "stability_risk_score": _score("stability_risk_score"),
+                "novelty_bonus_score": _score("novelty_bonus_score"),
+                "bo_override_confidence": _score("bo_override_confidence"),
+                "short_reason": str(row.get("short_reason", "")).strip(),
+                "main_risk": str(row.get("main_risk", "")).strip(),
+            }
+        )
+
+    extracted = sorted(extracted, key=lambda item: (item["original_rank"], item["formula"]))
+    deduped: list[dict[str, Any]] = []
+    seen_ranks: set[int] = set()
+    seen_formulas: set[str] = set()
+    for row in extracted:
+        if row["original_rank"] in seen_ranks or row["formula"] in seen_formulas:
+            continue
+        seen_ranks.add(row["original_rank"])
+        seen_formulas.add(row["formula"])
+        deduped.append(row)
+    return deduped
+
+
 def _limit_selected_materials(selected_materials: list[dict[str, Any]], n_select: int) -> list[dict[str, Any]]:
     limited = list(selected_materials[: max(0, int(n_select))])
     for i, row in enumerate(limited, 1):
@@ -565,6 +728,42 @@ def save_evaluation_results(result: Dict, output_dir: str | None = None):
         output_dir = f"{results_root}/iteration_{iteration_num}/selected_results"
 
     os.makedirs(output_dir, exist_ok=True)
+    evaluation_mode = str(result.get("evaluation_mode") or "selected_materials")
+
+    if evaluation_mode == "candidate_scores":
+        candidate_scores = _extract_candidate_scores(result["evaluation"])
+        if not candidate_scores:
+            return None
+
+        csv_file = os.path.join(output_dir, "ai_candidate_scores.csv")
+        csv_data = []
+        for score_row in candidate_scores:
+            matched_material = None
+            for candidate in result["top_materials"]:
+                if candidate.get("formula") == score_row.get("formula"):
+                    matched_material = candidate
+                    break
+
+            merged = dict(score_row)
+            if matched_material:
+                merged.update(
+                    {
+                        "k_pred": matched_material.get("k_pred", ""),
+                        "mu_log": matched_material.get("mu_log", ""),
+                        "sigma_log": matched_material.get("sigma_log", ""),
+                        "ei": matched_material.get("ei", matched_material.get("score", "")),
+                        "k_lower": matched_material.get("k_lower", ""),
+                        "k_upper": matched_material.get("k_upper", ""),
+                        "elements": matched_material.get("elements", ""),
+                        "n_elements": matched_material.get("n_elements", ""),
+                        "total_atoms": matched_material.get("total_atoms", ""),
+                    }
+                )
+            csv_data.append(merged)
+
+        pd.DataFrame(csv_data).to_csv(csv_file, index=False, encoding="utf-8-sig")
+        print(f"[evaluator] saved candidate score csv: {csv_file}")
+        return csv_file
 
     selected_materials = _limit_selected_materials(
         _extract_selected_materials(result["evaluation"]),

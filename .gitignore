@@ -94,3 +94,8 @@ llm_old/
 tests/
 bo_ai_guarded/
 featureEngeering/
+
+Paper/*
+archive/*
+figures/*
+main_bo_ai_guarded.py

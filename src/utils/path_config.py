@@ -113,7 +113,7 @@ class PathConfig:
         results_root = Path(f"{run_mode}/results")
         models_root = Path(f"{run_mode}/models/GPR")
         data_root = Path(f"{run_mode}/data")
-        doc_root = Path(f"{run_mode}/doc") if run_mode == "llm" else None
+        doc_root = Path(f"{run_mode}/doc")
         
         # 初始文件路径
         init_data = Path(init_data_path) if init_data_path else None

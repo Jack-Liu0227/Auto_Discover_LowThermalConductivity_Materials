@@ -9,6 +9,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 project_root = Path(__file__).parent
 src_path = project_root / "src"
 if str(src_path) not in sys.path:
@@ -21,11 +26,13 @@ from utils.progress_tracker import ProgressTracker
 from utils.reproducibility import setup_reproducibility
 from utils.workflow_resume import reconcile_progress_with_filesystem
 
-RUN_MODE = "llm"
-RESULTS_ROOT = f"{RUN_MODE}/results"
-MODELS_ROOT = f"{RUN_MODE}/models/GPR"
-DATA_ROOT = f"{RUN_MODE}/data"
-DOC_ROOT = f"{RUN_MODE}/doc"
+DEFAULT_RUN_MODE = "llm"
+RESULTS_ROOT = f"{DEFAULT_RUN_MODE}/results"
+MODELS_ROOT = f"{DEFAULT_RUN_MODE}/models/GPR"
+DATA_ROOT = f"{DEFAULT_RUN_MODE}/data"
+DOC_ROOT = f"{DEFAULT_RUN_MODE}/doc"
+SUPPORTED_SCREENING_MODES = ("llm_full_rerank", "llm_bo_fusion")
+BO_ONLY_SCREENING_MODE = "bo_direct"
 
 
 DEFAULT_CONFIG = {
@@ -35,6 +42,7 @@ DEFAULT_CONFIG = {
     "n_structures": 5,
     "top_k_bayes": 20,
     "top_k_screen": 10,
+    "screening_mode": "llm_bo_fusion",
     "max_workers": 4,
     "relax_workers": 1,
     "phonon_workers": 1,
@@ -48,7 +56,9 @@ DEFAULT_CONFIG = {
     "deterministic_torch": True,
     "allow_partial_structure": False,
     "skip_doc_update": False,
-    "relax_timeout_sec": 120,
+    "relax_timeout_sec": 900,
+    "prefer_isolated_relax_process": True,
+    "allow_in_process_relax_fallback": True,
     "websearch_enabled": True,
     "websearch_top_n": 5,
     "websearch_strategy": "hybrid",
@@ -70,6 +80,7 @@ PARAM_MEMORY_KEYS = [
     "n_structures",
     "top_k_bayes",
     "top_k_screen",
+    "screening_mode",
     "websearch_enabled",
     "websearch_top_n",
     "phonon_imag_tol",
@@ -83,8 +94,13 @@ PARAM_MEMORY_KEYS = [
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="ASLK Agno Workflow Runtime")
+    parser = argparse.ArgumentParser(description="ASLK Agno Workflow Runtime (LLM screening modes)")
     parser.add_argument("--runtime", choices=["workflow", "agentos"], default="workflow")
+    parser.add_argument(
+        "--screening-mode",
+        choices=list(SUPPORTED_SCREENING_MODES),
+        default="llm_bo_fusion",
+    )
     parser.add_argument("--websearch-top-n", type=int, default=5)
     parser.add_argument("--websearch-enabled", dest="websearch_enabled", action="store_true")
     parser.add_argument("--no-websearch-enabled", dest="websearch_enabled", action="store_false")
@@ -188,6 +204,34 @@ def initialize_environment(path_config: PathConfig) -> None:
                 break
 
 
+def normalize_main_screening_mode(screening_mode: str | None) -> str:
+    mode = str(screening_mode or DEFAULT_CONFIG["screening_mode"]).strip() or DEFAULT_CONFIG["screening_mode"]
+    if mode == BO_ONLY_SCREENING_MODE:
+        raise SystemExit(
+            "main.py no longer supports screening_mode=bo_direct. "
+            "Use `python main_bo_only.py ...` for the standalone BO-only workflow."
+        )
+    if mode not in SUPPORTED_SCREENING_MODES:
+        raise SystemExit(
+            f"Unsupported screening_mode for main.py: {mode!r}. "
+            f"Choose one of: {', '.join(SUPPORTED_SCREENING_MODES)}."
+        )
+    return mode
+
+
+def resolve_run_mode(screening_mode: str) -> str:
+    normalize_main_screening_mode(screening_mode)
+    return DEFAULT_RUN_MODE
+
+
+def apply_run_mode_roots(config: dict, run_mode: str) -> None:
+    config["run_mode"] = run_mode
+    config["results_root"] = f"{run_mode}/results"
+    config["models_root"] = f"{run_mode}/models/GPR"
+    config["data_root"] = f"{run_mode}/data"
+    config["doc_root"] = f"{run_mode}/doc"
+
+
 def build_config(args: argparse.Namespace) -> dict:
     config = DEFAULT_CONFIG.copy()
     config.update(load_bo_runtime_defaults())
@@ -200,6 +244,7 @@ def build_config(args: argparse.Namespace) -> dict:
 
     config["top_k_bayes"] = args.top_k_bayes
     config["top_k_screen"] = args.top_k_screen
+    config["screening_mode"] = normalize_main_screening_mode(args.screening_mode)
 
     if args.num_gpus is not None:
         config["gpus"] = [f"cuda:{i}" for i in range(args.num_gpus)]
@@ -215,6 +260,7 @@ def build_config(args: argparse.Namespace) -> dict:
         config["skip_doc_update"] = bool(args.skip_doc_update)
     config["init_data_path"] = args.init_data
     config["init_doc_path"] = args.init_doc
+    apply_run_mode_roots(config, resolve_run_mode(args.screening_mode))
     return config
 
 
@@ -233,6 +279,8 @@ def apply_explicit_cli_overrides(config: dict, args: argparse.Namespace) -> None
         config["top_k_bayes"] = args.top_k_bayes
     if "top_k_screen" in explicit_dests:
         config["top_k_screen"] = args.top_k_screen
+    if "screening_mode" in explicit_dests:
+        config["screening_mode"] = normalize_main_screening_mode(args.screening_mode)
     if "num_gpus" in explicit_dests and args.num_gpus is not None:
         config["gpus"] = [f"cuda:{i}" for i in range(args.num_gpus)]
     if "seed" in explicit_dests:
@@ -251,6 +299,7 @@ def apply_explicit_cli_overrides(config: dict, args: argparse.Namespace) -> None
         config["init_data_path"] = args.init_data
     if "init_doc" in explicit_dests:
         config["init_doc_path"] = args.init_doc
+    apply_run_mode_roots(config, resolve_run_mode(config.get("screening_mode", DEFAULT_RUN_MODE)))
 
 
 def _load_runtime_handlers():
@@ -259,9 +308,9 @@ def _load_runtime_handlers():
     return run_workflow, serve_agentos
 
 
-def setup_logging() -> Path:
+def setup_logging(results_root: str) -> Path:
     os.environ["PYTHONIOENCODING"] = "utf-8"
-    results_dir = project_root / RESULTS_ROOT
+    results_dir = project_root / results_root
     results_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = results_dir / f"run_{timestamp}.log"
@@ -312,14 +361,16 @@ def resolve_iteration_window(
 
 
 def main() -> None:
-    log_file = setup_logging()
     args = parse_args()
     config = build_config(args)
     param_sheet_path = ensure_param_sheet(project_root / args.params_csv)
     prefill_values, prefill_warnings = load_param_prefill(param_sheet_path, config)
     sheet_overrides, sheet_warnings = load_param_overrides(param_sheet_path, config)
     config.update(sheet_overrides)
+    config["screening_mode"] = normalize_main_screening_mode(config.get("screening_mode"))
     apply_explicit_cli_overrides(config, args)
+    apply_run_mode_roots(config, resolve_run_mode(config.get("screening_mode", DEFAULT_RUN_MODE)))
+    log_file = setup_logging(config["results_root"])
     config["agentos_ui_defaults"] = prefill_values
     config["params_csv_path"] = str(param_sheet_path)
     if args.max_iterations is not None:
@@ -333,7 +384,7 @@ def main() -> None:
     )
     path_config = PathConfig.from_run_mode(
         project_root=project_root,
-        run_mode=RUN_MODE,
+        run_mode=config["run_mode"],
         init_data_path=args.init_data,
         init_doc_path=args.init_doc,
     )
@@ -384,6 +435,7 @@ def main() -> None:
     print(f"effective_target_iterations={effective_target}")
     print(f"execution_range=[{start_iteration} .. {effective_target}]")
     print(f"top-k: bayes={config['top_k_bayes']}, screen={config['top_k_screen']}")
+    print(f"screening mode: {config['screening_mode']}")
     if args.runtime == "agentos":
         _, serve_agentos = _load_runtime_handlers()
         print(f"agentos endpoint: http://{args.agentos_host}:{args.agentos_port}")
@@ -433,6 +485,7 @@ if __name__ == "__main__":
 # python main.py --runtime agentos --agentos-host 0.0.0.0 --agentos-port 8000
 # python .\main.py `
 #   --runtime workflow `
+#   --screening-mode llm_bo_fusion `
 #   --max-iterations 20 `
 #   --samples 100 `
 #   --n-structures 5 `
@@ -447,3 +500,7 @@ if __name__ == "__main__":
 #   --init-doc doc/Theoretical_principle_document.md `
 #   --params-csv config/agentos_params.csv `
 #   --allow-partial-structure
+# python main.py --runtime workflow --screening-mode llm_full_rerank
+# python main.py --runtime workflow --screening-mode llm_bo_fusion
+# python main.py --runtime agentos --screening-mode llm_full_rerank
+# python main.py --runtime agentos --screening-mode llm_bo_fusion

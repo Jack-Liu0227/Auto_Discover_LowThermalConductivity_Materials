@@ -281,6 +281,8 @@ class MattersimWrapper(BaseTool):
         gamma_min_optical = None
         gamma_max_acoustic = None
         phonon_workflow = None
+        phonon = None
+        work_dir = None
 
         # 3. 计算声子谱
         if calculate_phonon:
@@ -331,30 +333,22 @@ class MattersimWrapper(BaseTool):
                 logger.info(f"  🚀 运行声子计算（最长600秒）...")
                 
                 # 使用threading实现简单超时监控(无法强制终止,但可以记录超时)
-                import threading
                 import time as time_module
                 
-                phonon_result = {'has_imaginary': None, 'phonon': None, 'error': None, 'completed': False}
-                
-                def _run_phonon():
+                # Thread-based timeout used to live below. It tended to leave
+                # CUDA objects referenced after completion, so we keep the
+                # direct call above and disable the legacy path.
+                start_time = time_module.time()
+                has_imaginary, phonon = phonon_workflow.run()
+                phonon_thread = type("_PhononThreadStub", (), {})()
+                phonon_result = {"completed": True, "error": None}
+                if False:
                     """在线程中运行声子计算"""
-                    try:
-                        has_img, ph = phonon_workflow.run()
-                        phonon_result['has_imaginary'] = has_img
-                        phonon_result['phonon'] = ph
-                        phonon_result['completed'] = True
-                    except Exception as e:
-                        phonon_result['error'] = str(e)
-                        phonon_result['completed'] = True
                 
-                phonon_thread = threading.Thread(target=_run_phonon)
                 phonon_thread.daemon = True  # 设为守护线程
-                phonon_thread.start()
                 
                 # 等待最多600秒
                 start_time = time_module.time()
-                timeout_seconds = 600
-                phonon_thread.join(timeout=timeout_seconds)
                 elapsed = time_module.time() - start_time
                 
                 if not phonon_result['completed']:
@@ -365,8 +359,8 @@ class MattersimWrapper(BaseTool):
                 if phonon_result['error']:
                     raise RuntimeError(f"声子计算失败: {phonon_result['error']}")
                 
-                has_imaginary = phonon_result['has_imaginary']
-                phonon = phonon_result['phonon']
+                has_imaginary = has_imaginary
+                phonon = phonon
 
                 min_freq = None
                 max_freq = None
@@ -449,7 +443,14 @@ class MattersimWrapper(BaseTool):
                         logger.debug(f"清理临时文件时出错: {cleanup_error}")
         
         # 清理 GPU 缓存（在返回结果前）
-        self._cleanup_gpu_cache()
+        try:
+            atoms.calc = None
+        except Exception:
+            pass
+        phonon_workflow = None
+        phonon = None
+        calculator = None
+        self.close()
 
         result = StabilityResult(
             composition=structure.composition,
@@ -498,6 +499,32 @@ class MattersimWrapper(BaseTool):
         except Exception as e:
             logger.debug(f"GPU cleanup warning: {e}")
 
+    def _release_calculator(self) -> None:
+        """Release the cached calculator so CUDA tensors can be reclaimed promptly."""
+        calculator = self.calculator
+        self.calculator = None
+        if calculator is None:
+            return
+
+        try:
+            model = getattr(calculator, "model", None)
+            if model is not None:
+                del model
+        except Exception:
+            pass
+
+        del calculator
+
+    def close(self) -> None:
+        """Best-effort cleanup entrypoint for callers that need immediate release."""
+        self._release_calculator()
+        self._cleanup_gpu_cache()
+
+    @staticmethod
+    def _is_cuda_oom_error(error: Exception) -> bool:
+        message = str(error).lower()
+        return "out of memory" in message or "cuda error: out of memory" in message
+
     def _structure_to_atoms(self, structure: CrystalStructure):
         """
         将CrystalStructure转换为ASE Atoms对象
@@ -536,9 +563,7 @@ class MattersimWrapper(BaseTool):
             import gc
             
             # 先清理旧的calculator和GPU缓存
-            if self.calculator is not None:
-                del self.calculator
-                self.calculator = None
+            self._release_calculator()
             
             # 彻底清理GPU内存
             gc.collect()
@@ -964,108 +989,127 @@ class MattersimWrapper(BaseTool):
         pressure: float = 0.0,
         fmax_stage1: float = 0.05,
         fmax_stage2: float = 0.01,
-        max_steps: int = 200  # 降低默认值,防止卡死(每阶段最多200步)
+        max_steps: int = 200,
     ):
-        """
-        使用 MatterSim 弛豫结构的真实实现
+        """Relax a structure with MatterSim and fall back to CPU on CUDA OOM."""
+        original_device = self.device
 
-        Args:
-            structure: 晶体结构
-            pressure: 压力 (GPa)
-            fmax_stage1: 第一阶段最大力阈值
-            fmax_stage2: 第二阶段最大力阈值
-            max_steps: 每个阶段的最大步数
-
-        Returns:
-            ASE Atoms: 弛豫后的 ASE Atoms 对象
-        """
-        try:
-            from mattersim.forcefield import MatterSimCalculator
+        def _run_relax_once(target_device: str):
             from mattersim.applications.relax import Relaxer
             from ase.units import GPa
 
-            # 1. 将 CrystalStructure 转换为 ASE Atoms
+            self.device = target_device
             atoms = self._structure_to_atoms(structure)
-            
-            # 强制清理GPU缓存（在创建计算器前，多次清理确保彻底）
-            for _ in range(3):
-                self._cleanup_gpu_cache()
-            logger.info("GPU cache aggressively cleared before creating calculator")
 
-            # 2. 获取或创建 MatterSim 计算器（使用统一方法确保一致性）
+            if target_device == "cuda":
+                for _ in range(3):
+                    self._cleanup_gpu_cache()
+                logger.info("GPU cache aggressively cleared before creating calculator")
+            else:
+                logger.info("Retrying relaxation on CPU after CUDA OOM")
+
             logger.info("Setting up MatterSimCalculator for relaxation...")
             calculator = self._get_or_create_calculator()
             atoms.set_calculator(calculator)
 
-            # 3. 创建 Relaxer
             relaxer = Relaxer(
                 optimizer="BFGS",
                 filter="ExpCellFilter",
-                constrain_symmetry=False
+                constrain_symmetry=False,
             )
 
-            # 4. 设置压力参数
             params_filter = {}
             if pressure > 0:
                 params_filter["scalar_pressure"] = pressure * GPa
-                logger.info(f"弛豫压力: {pressure} GPa")
+                logger.info(f"Relax pressure: {pressure} GPa")
             else:
-                logger.info("弛豫压力: 0 GPa")
+                logger.info("Relax pressure: 0 GPa")
 
-            # 5. 第一阶段：宽松弛豫 (添加时间限制)
             import time as time_module
+
             start_relax_time = time_module.time()
-            max_relax_time = 300  # 总弛豫时间不超过5分钟
-            
-            logger.info(f"第一阶段弛豫: fmax={fmax_stage1}, maxstep=0.1, 最长{max_relax_time}秒")
+            max_relax_time = 300
+
+            logger.info(
+                "Relax stage 1: fmax=%s, maxstep=0.1, max_time=%ss",
+                fmax_stage1,
+                max_relax_time,
+            )
             success1 = relaxer.relax(
                 atoms,
                 steps=max_steps,
                 fmax=fmax_stage1,
                 maxstep=0.1,
-                params_filter=params_filter
+                params_filter=params_filter,
             )
-            
+
             elapsed = time_module.time() - start_relax_time
             if elapsed > max_relax_time:
-                logger.warning(f"第一阶段弛豫超时({elapsed:.1f}s > {max_relax_time}s), 跳过第二阶段")
+                logger.warning("Relax stage 1 timed out after %.1fs", elapsed)
                 success = False
             elif not success1:
-                logger.warning("第一阶段弛豫未收敛")
+                logger.warning("Relax stage 1 did not converge")
                 success = False
             else:
-                # 6. 第二阶段：精细弛豫
                 remaining_time = max_relax_time - elapsed
                 if remaining_time < 30:
-                    logger.warning(f"剩余时间不足({remaining_time:.1f}s), 跳过第二阶段")
+                    logger.warning("Skipping relax stage 2 because only %.1fs remain", remaining_time)
                     success = success1
                 else:
-                    logger.info(f"第二阶段弛豫: fmax={fmax_stage2}, maxstep=0.05, 剩余{remaining_time:.1f}秒")
-                    success2 = relaxer.relax(
+                    logger.info(
+                        "Relax stage 2: fmax=%s, maxstep=0.05, remaining_time=%.1fs",
+                        fmax_stage2,
+                        remaining_time,
+                    )
+                    success = relaxer.relax(
                         atoms,
                         steps=max_steps,
                         fmax=fmax_stage2,
                         maxstep=0.05,
-                        params_filter=params_filter
+                        params_filter=params_filter,
                     )
-                    success = success2
-            
+
             total_elapsed = time_module.time() - start_relax_time
             if not success:
-                logger.warning(f"弛豫未收敛 (总耗时{total_elapsed:.1f}s)")
-            else:
-                logger.info(f"弛豫完成: converged={success} (总耗时{total_elapsed:.1f}s)")
-            
-            # 清理 GPU 缓存
-            self._cleanup_gpu_cache()
+                logger.warning("Relaxation did not converge after %.1fs", total_elapsed)
+                try:
+                    atoms.calc = None
+                except Exception:
+                    pass
+                self.close()
+                raise RuntimeError(f"Relaxation did not converge after {total_elapsed:.1f}s")
 
-            # 返回弛豫后的 ASE Atoms 对象
+            logger.info("Relaxation completed: converged=%s elapsed=%.1fs", success, total_elapsed)
+            try:
+                atoms.calc = None
+            except Exception:
+                pass
+            self.close()
             return atoms
 
-        except Exception as e:
-            logger.error(f"结构弛豫失败: {e}")
+        try:
+            return _run_relax_once(original_device)
+        except Exception as exc:
+            if original_device == "cuda" and self._is_cuda_oom_error(exc):
+                logger.warning(
+                    "CUDA OOM during relaxation for %s; clearing GPU cache and retrying on CPU",
+                    structure.composition.formula,
+                )
+                self.close()
+                try:
+                    return _run_relax_once("cpu")
+                except Exception as cpu_exc:
+                    logger.error(f"CPU fallback relaxation also failed: {cpu_exc}")
+                    import traceback
+
+                    logger.debug(traceback.format_exc())
+                    raise cpu_exc
+
+            logger.error(f"Structure relaxation failed: {exc}")
             import traceback
+
             logger.debug(traceback.format_exc())
-            # 即使失败也清理缓存
             self._cleanup_gpu_cache()
             raise
+        finally:
+            self.device = original_device

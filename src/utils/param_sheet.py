@@ -8,13 +8,14 @@ from typing import Any
 
 
 TEMPLATE_ROWS = [
+    {"key": "screening_mode", "value": "llm_bo_fusion", "enabled": "1", "notes": "Screening strategy mode"},
     {"key": "websearch_enabled", "value": "true", "enabled": "1", "notes": "Enable/disable web search"},
     {"key": "websearch_top_n", "value": "5", "enabled": "1", "notes": "How many top candidates to enrich"},
     {"key": "top_k_bayes", "value": "20", "enabled": "1", "notes": "Bayes top-k candidates"},
     {"key": "top_k_screen", "value": "10", "enabled": "1", "notes": "AI screening top-k"},
     {"key": "samples", "value": "100", "enabled": "1", "notes": "Bayesian sample size"},
     {"key": "n_structures", "value": "5", "enabled": "1", "notes": "Structures generated per material"},
-    {"key": "relax_timeout_sec", "value": "120", "enabled": "1", "notes": "Relaxation timeout per task"},
+    {"key": "relax_timeout_sec", "value": "900", "enabled": "1", "notes": "Relaxation timeout per task"},
     {"key": "skip_doc_update", "value": "false", "enabled": "1", "notes": "Skip theory update step"},
     {"key": "agentos_default_iterations", "value": "3", "enabled": "1", "notes": "Default iterations for AgentOS"},
 ]

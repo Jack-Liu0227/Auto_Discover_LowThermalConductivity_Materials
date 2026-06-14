@@ -130,13 +130,59 @@ def run_ai_evaluation_step(
         print(f"[resume] AI screening artifacts missing for iteration {iteration_num}, resetting progress from {step_key}")
         reset_steps_from(tracker, iteration_num, step_key)
 
-    result = step_ai_evaluation(
-        iteration_num=iteration_num,
-        candidate_materials=candidate_materials,
-        n_select=config["top_k_screen"],
-        path_config=config.get("path_config"),
-        results_root=config["results_root"],
-    )
+    screening_mode = str(config.get("screening_mode") or "llm_bo_fusion")
+    if screening_mode == "bo_direct":
+        return {
+            "success": False,
+            "error": (
+                "screening_mode=bo_direct has moved to main_bo_only.py. "
+                "Use the standalone BO-only entrypoint for this mode."
+            ),
+            "screening_mode": screening_mode,
+        }
+    elif screening_mode == "llm_full_rerank":
+        ai_result = step_ai_evaluation(
+            iteration_num=iteration_num,
+            candidate_materials=candidate_materials,
+            n_select=config["top_k_screen"],
+            evaluation_mode="selected_materials",
+            path_config=config.get("path_config"),
+            results_root=config["results_root"],
+            doc_root=config.get("doc_root", "llm/doc"),
+            init_doc_path=config.get("init_doc_path"),
+        )
+        if not ai_result.get("success"):
+            return ai_result
+        result = _build_full_rerank_selection(
+            iteration_num=iteration_num,
+            results_root=config["results_root"],
+            candidate_materials=candidate_materials,
+            ai_result=ai_result,
+            screening_mode=screening_mode,
+        )
+    else:
+        ai_result = step_ai_evaluation(
+            iteration_num=iteration_num,
+            candidate_materials=candidate_materials,
+            n_select=config["top_k_screen"],
+            evaluation_mode="candidate_scores",
+            path_config=config.get("path_config"),
+            results_root=config["results_root"],
+            doc_root=config.get("doc_root", "llm/doc"),
+            init_doc_path=config.get("init_doc_path"),
+        )
+        if not ai_result.get("success"):
+            return ai_result
+        result = _build_fusion_selection(
+            iteration_num=iteration_num,
+            results_root=config["results_root"],
+            candidate_materials=candidate_materials,
+            candidate_scores=ai_result.get("candidate_scores", []),
+            n_select=int(config["top_k_screen"]),
+            screening_mode=screening_mode,
+            report_path=ai_result.get("report_path"),
+        )
+
     if result.get("success") and tracker:
         tracker.mark_step_completed(
             iteration_num,
@@ -144,6 +190,8 @@ def run_ai_evaluation_step(
             metadata={
                 "selected_materials": len(result.get("selected_materials", [])),
                 "report_file": result.get("report_path"),
+                "selection_trace": result.get("trace_path"),
+                "screening_mode": result.get("screening_mode"),
             },
         )
     return result
@@ -187,7 +235,9 @@ def run_structure_step(
         tracker=tracker,
         allow_partial_completion=config.get("allow_partial_structure", False),
         path_config=config.get("path_config"),
-        relax_timeout_sec=config.get("relax_timeout_sec", 120),
+        relax_timeout_sec=config.get("relax_timeout_sec", 900),
+        prefer_isolated_relax_process=config.get("prefer_isolated_relax_process", True),
+        allow_in_process_relax_fallback=config.get("allow_in_process_relax_fallback", True),
     )
 
 
@@ -244,6 +294,508 @@ def run_document_update_step(
             },
         )
     return result
+
+
+def _selected_results_dir(results_root: str | Path, iteration_num: int) -> Path:
+    path = Path(results_root) / f"iteration_{iteration_num}" / "selected_results"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _formula_key(material: dict[str, Any]) -> str:
+    value = str(material.get("formula") or material.get("composition") or material.get("name") or "").strip()
+    return (
+        value.replace("₀", "0")
+        .replace("₁", "1")
+        .replace("₂", "2")
+        .replace("₃", "3")
+        .replace("₄", "4")
+        .replace("₅", "5")
+        .replace("₆", "6")
+        .replace("₇", "7")
+        .replace("₈", "8")
+        .replace("₉", "9")
+        .replace(" ", "")
+    )
+
+
+def _candidate_rows(candidate_materials: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for idx, material in enumerate(candidate_materials, start=1):
+        row = dict(material)
+        row["formula"] = _formula_key(material)
+        row["original_bo_rank"] = int(material.get("rank") or idx)
+        row["k_pred"] = _safe_float(material.get("k_pred"))
+        row["ei"] = _safe_float(material.get("ei", material.get("score")))
+        row["sigma_log"] = _safe_float(material.get("sigma_log"))
+        rows.append(row)
+    return rows
+
+
+def _lookup_candidates(candidate_materials: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        row["formula"]: row
+        for row in _candidate_rows(candidate_materials)
+        if row.get("formula")
+    }
+
+
+def _write_csv(path: Path, rows: list[dict[str, Any]]) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(path, index=False, encoding="utf-8-sig")
+    return str(path)
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return str(path)
+
+
+def _persist_selection_outputs(
+    *,
+    iteration_num: int,
+    results_root: str,
+    screening_mode: str,
+    selected_rows: list[dict[str, Any]],
+    trace_rows: list[dict[str, Any]],
+    report_path: str | None = None,
+) -> dict[str, str]:
+    base_dir = _selected_results_dir(results_root, iteration_num)
+    selected_csv_path = base_dir / "ai_selected_materials.csv"
+    trace_csv_path = base_dir / "selection_trace.csv"
+    trace_json_path = base_dir / "selection_trace.json"
+
+    _write_csv(selected_csv_path, selected_rows)
+    _write_csv(trace_csv_path, trace_rows)
+    _write_json(
+        trace_json_path,
+        {
+            "iteration": iteration_num,
+            "screening_mode": screening_mode,
+            "selected_count": len(selected_rows),
+            "selected_formulas": [row.get("formula") for row in selected_rows],
+            "report_path": report_path,
+            "rows": trace_rows,
+        },
+    )
+    return {
+        "selected_csv": str(selected_csv_path),
+        "trace_csv": str(trace_csv_path),
+        "trace_json": str(trace_json_path),
+    }
+
+
+def _build_rank_cutoff_selection(
+    *,
+    iteration_num: int,
+    results_root: str,
+    candidate_materials: list[dict[str, Any]],
+    n_select: int,
+    screening_mode: str,
+) -> dict[str, Any]:
+    candidate_rows = _candidate_rows(candidate_materials)
+    selected_formulas: set[str] = set()
+    selected_rows: list[dict[str, Any]] = []
+    trace_rows: list[dict[str, Any]] = []
+
+    for idx, row in enumerate(candidate_rows, start=1):
+        selected = idx <= n_select
+        trace_row = {
+            "formula": row["formula"],
+            "original_bo_rank": row["original_bo_rank"],
+            "k_pred": row["k_pred"],
+            "ei": row["ei"],
+            "sigma_log": row["sigma_log"],
+            "screening_mode": screening_mode,
+            "selected_for_calc": selected,
+            "final_rank": idx if selected else "",
+            "selection_reason": "bo_rank_cutoff" if selected else "",
+        }
+        trace_rows.append(trace_row)
+        if selected:
+            selected_formulas.add(row["formula"])
+            selected_rows.append({**row, **trace_row})
+
+    artifact_paths = _persist_selection_outputs(
+        iteration_num=iteration_num,
+        results_root=results_root,
+        screening_mode=screening_mode,
+        selected_rows=selected_rows,
+        trace_rows=trace_rows,
+    )
+    return {
+        "success": True,
+        "n_selected": len(selected_rows),
+        "selected_materials": selected_rows,
+        "csv_path": artifact_paths["selected_csv"],
+        "trace_path": artifact_paths["trace_json"],
+        "trace_csv_path": artifact_paths["trace_csv"],
+        "selection_trace": trace_rows,
+        "screening_mode": screening_mode,
+    }
+
+
+def _build_full_rerank_selection(
+    *,
+    iteration_num: int,
+    results_root: str,
+    candidate_materials: list[dict[str, Any]],
+    ai_result: dict[str, Any],
+    screening_mode: str,
+) -> dict[str, Any]:
+    candidate_lookup = _lookup_candidates(candidate_materials)
+    selected_rows: list[dict[str, Any]] = []
+    selected_lookup: dict[str, dict[str, Any]] = {}
+
+    for item in ai_result.get("selected_materials", []):
+        formula = _formula_key(item)
+        candidate = candidate_lookup.get(formula)
+        if not formula or candidate is None or formula in selected_lookup:
+            continue
+        row = {
+            **candidate,
+            "formula": formula,
+            "original_bo_rank": int(candidate.get("original_bo_rank", item.get("original_rank") or 0)),
+            "screening_mode": screening_mode,
+            "selected_for_calc": True,
+            "final_rank": int(item.get("final_rank") or len(selected_rows) + 1),
+            "ranking_reason": str(item.get("ranking_reason", "")).strip(),
+            "main_risk": str(item.get("main_risk", "")).strip(),
+        }
+        selected_rows.append(row)
+        selected_lookup[formula] = row
+
+    selected_rows = sorted(selected_rows, key=lambda row: (int(row.get("final_rank", 10**9)), row.get("formula", "")))
+    for idx, row in enumerate(selected_rows, start=1):
+        row["final_rank"] = idx
+
+    trace_rows: list[dict[str, Any]] = []
+    for row in _candidate_rows(candidate_materials):
+        selected = selected_lookup.get(row["formula"])
+        trace_rows.append(
+            {
+                "formula": row["formula"],
+                "original_bo_rank": row["original_bo_rank"],
+                "k_pred": row["k_pred"],
+                "ei": row["ei"],
+                "sigma_log": row["sigma_log"],
+                "screening_mode": screening_mode,
+                "selected_for_calc": bool(selected),
+                "final_rank": selected.get("final_rank") if selected else "",
+                "ranking_reason": selected.get("ranking_reason", "") if selected else "",
+                "main_risk": selected.get("main_risk", "") if selected else "",
+            }
+        )
+
+    artifact_paths = _persist_selection_outputs(
+        iteration_num=iteration_num,
+        results_root=results_root,
+        screening_mode=screening_mode,
+        selected_rows=selected_rows,
+        trace_rows=trace_rows,
+        report_path=ai_result.get("report_path"),
+    )
+    return {
+        "success": True,
+        "n_selected": len(selected_rows),
+        "selected_materials": selected_rows,
+        "csv_path": artifact_paths["selected_csv"],
+        "trace_path": artifact_paths["trace_json"],
+        "trace_csv_path": artifact_paths["trace_csv"],
+        "selection_trace": trace_rows,
+        "report_path": ai_result.get("report_path"),
+        "raw_ai_result": ai_result,
+        "screening_mode": screening_mode,
+    }
+
+
+def _minmax_normalize(values: list[float], *, inverse: bool = False) -> list[float]:
+    if not values:
+        return []
+    minimum = min(values)
+    maximum = max(values)
+    if abs(maximum - minimum) < 1e-12:
+        normalized = [1.0 for _ in values]
+    else:
+        normalized = [(value - minimum) / (maximum - minimum) for value in values]
+    if inverse:
+        normalized = [1.0 - value for value in normalized]
+    return normalized
+
+
+def _build_fusion_selection(
+    *,
+    iteration_num: int,
+    results_root: str,
+    candidate_materials: list[dict[str, Any]],
+    candidate_scores: list[dict[str, Any]],
+    n_select: int,
+    screening_mode: str,
+    report_path: str | None = None,
+) -> dict[str, Any]:
+    candidate_rows = _candidate_rows(candidate_materials)
+    if len(candidate_scores) < len(candidate_rows):
+        return {
+            "success": False,
+            "error": f"Candidate score coverage mismatch: expected {len(candidate_rows)}, got {len(candidate_scores)}",
+        }
+
+    scores_by_formula = {
+        _formula_key(item): item
+        for item in candidate_scores
+        if _formula_key(item)
+    }
+
+    if len(scores_by_formula) < len(candidate_rows):
+        return {
+            "success": False,
+            "error": f"Candidate score uniqueness mismatch: expected {len(candidate_rows)}, got {len(scores_by_formula)}",
+        }
+
+    ei_norm = _minmax_normalize([row["ei"] for row in candidate_rows])
+    k_pred_norm = _minmax_normalize([row["k_pred"] for row in candidate_rows], inverse=True)
+    sigma_norm = _minmax_normalize([row["sigma_log"] for row in candidate_rows])
+    rank_norm = _minmax_normalize([row["original_bo_rank"] for row in candidate_rows], inverse=True)
+
+    trace_rows: list[dict[str, Any]] = []
+    forced_keep_formulas: set[str] = set()
+    eligible_pool: list[dict[str, Any]] = []
+
+    for idx, row in enumerate(candidate_rows):
+        formula = row["formula"]
+        score_row = scores_by_formula.get(formula)
+        if score_row is None:
+            return {
+                "success": False,
+                "error": f"Missing candidate score for formula: {formula}",
+            }
+
+        bo_base_score = (
+            0.40 * ei_norm[idx]
+            + 0.30 * k_pred_norm[idx]
+            + 0.15 * sigma_norm[idx]
+            + 0.15 * rank_norm[idx]
+        )
+        llm_raw = (
+            0.50 * (_safe_float(score_row.get("mechanism_fit_score")) / 10.0)
+            - 0.60 * (_safe_float(score_row.get("stability_risk_score")) / 10.0)
+            + 0.20 * (_safe_float(score_row.get("novelty_bonus_score")) / 10.0)
+        )
+        confidence = int(score_row.get("bo_override_confidence", 0) or 0)
+        if confidence >= 8:
+            llm_adjustment = 1.0 * llm_raw
+        elif confidence >= 5:
+            llm_adjustment = 0.5 * llm_raw
+        else:
+            llm_adjustment = 0.2 * llm_raw
+
+        final_score = 0.85 * bo_base_score + 0.15 * llm_adjustment
+        original_bo_rank = int(row["original_bo_rank"])
+
+        if original_bo_rank <= 3:
+            selection_gate_status = "protected_top3"
+        elif original_bo_rank >= 13:
+            if (
+                int(score_row.get("mechanism_fit_score", 0) or 0) >= 8
+                and int(score_row.get("stability_risk_score", 0) or 0) <= 4
+                and confidence >= 8
+            ):
+                selection_gate_status = "tail_promotion_allowed"
+            else:
+                selection_gate_status = "tail_blocked"
+        else:
+            selection_gate_status = "normal_pool"
+
+        trace_row = {
+            **row,
+            "formula": formula,
+            "screening_mode": screening_mode,
+            "selected_for_calc": False,
+            "mechanism_fit_score": int(score_row.get("mechanism_fit_score", 0) or 0),
+            "stability_risk_score": int(score_row.get("stability_risk_score", 0) or 0),
+            "novelty_bonus_score": int(score_row.get("novelty_bonus_score", 0) or 0),
+            "bo_override_confidence": confidence,
+            "short_reason": str(score_row.get("short_reason", "")).strip(),
+            "main_risk": str(score_row.get("main_risk", "")).strip(),
+            "bo_base_score": bo_base_score,
+            "llm_adjustment": llm_adjustment,
+            "final_score": final_score,
+            "selection_gate_status": selection_gate_status,
+        }
+        trace_rows.append(trace_row)
+
+        protected = original_bo_rank <= 3 and not (
+            trace_row["stability_risk_score"] >= 9 and confidence >= 8
+        )
+        if protected:
+            forced_keep_formulas.add(formula)
+
+        if selection_gate_status == "tail_blocked":
+            continue
+        eligible_pool.append(trace_row)
+
+    selected_lookup: dict[str, dict[str, Any]] = {}
+    for row in trace_rows:
+        if row["formula"] in forced_keep_formulas:
+            selected_lookup[row["formula"]] = dict(row)
+
+    remaining = [row for row in eligible_pool if row["formula"] not in selected_lookup]
+    remaining = sorted(remaining, key=lambda row: (-row["final_score"], row["original_bo_rank"], row["formula"]))
+
+    for row in remaining:
+        if len(selected_lookup) >= n_select:
+            break
+        selected_lookup[row["formula"]] = dict(row)
+
+    selected_rows = sorted(
+        selected_lookup.values(),
+        key=lambda row: (-_safe_float(row.get("final_score")), int(row.get("original_bo_rank", 10**9)), row.get("formula", "")),
+    )[:n_select]
+    for idx, row in enumerate(selected_rows, start=1):
+        row["selected_for_calc"] = True
+        row["final_rank"] = idx
+
+    selected_formula_set = {row["formula"] for row in selected_rows}
+    for row in trace_rows:
+        row["selected_for_calc"] = row["formula"] in selected_formula_set
+        if row["formula"] in selected_formula_set:
+            row["final_rank"] = next(item["final_rank"] for item in selected_rows if item["formula"] == row["formula"])
+        else:
+            row["final_rank"] = ""
+
+    artifact_paths = _persist_selection_outputs(
+        iteration_num=iteration_num,
+        results_root=results_root,
+        screening_mode=screening_mode,
+        selected_rows=selected_rows,
+        trace_rows=trace_rows,
+        report_path=report_path,
+    )
+    return {
+        "success": True,
+        "n_selected": len(selected_rows),
+        "selected_materials": selected_rows,
+        "candidate_scores": candidate_scores,
+        "csv_path": artifact_paths["selected_csv"],
+        "trace_path": artifact_paths["trace_json"],
+        "trace_csv_path": artifact_paths["trace_csv"],
+        "selection_trace": trace_rows,
+        "report_path": report_path,
+        "screening_mode": screening_mode,
+    }
+
+
+def _load_formula_set(csv_path: str | None) -> set[str]:
+    if not csv_path:
+        return set()
+    path = Path(csv_path)
+    if not path.exists():
+        return set()
+    try:
+        df = pd.read_csv(path, encoding="utf-8-sig")
+    except Exception:
+        return set()
+    formulas: set[str] = set()
+    for column in ("formula", "Formula", "composition"):
+        if column not in df.columns:
+            continue
+        formulas.update(str(value).strip() for value in df[column].tolist() if str(value).strip())
+    return formulas
+
+
+def _best_kappa_for_selected_success(extraction_result: dict[str, Any], selected_formulas: set[str]) -> float | None:
+    success_path = extraction_result.get("success_deduped_file") or extraction_result.get("success_file")
+    if not success_path or not Path(success_path).exists():
+        return None
+    try:
+        df = pd.read_csv(success_path, encoding="utf-8-sig")
+    except Exception:
+        return None
+    if "formula" not in df.columns:
+        return None
+    filtered = df[df["formula"].astype(str).isin(selected_formulas)]
+    if filtered.empty:
+        return None
+    for column in ("thermal_conductivity_w_mk", "thermal_conductivity", "kappa", "k_pred"):
+        if column in filtered.columns:
+            series = pd.to_numeric(filtered[column], errors="coerce").dropna()
+            if not series.empty:
+                return float(series.min())
+    return None
+
+
+def _update_screening_summary(
+    *,
+    iteration_num: int,
+    results_root: str,
+    screen_result: dict[str, Any],
+    extraction_result: dict[str, Any],
+) -> str:
+    summary_path = Path(results_root) / "screening_summary.csv"
+    selected_rows = list(screen_result.get("selected_materials", []))
+    selected_formulas = {str(row.get("formula") or "").strip() for row in selected_rows if str(row.get("formula") or "").strip()}
+    success_formulas = _load_formula_set(extraction_result.get("success_deduped_file") or extraction_result.get("success_file"))
+    stable_formulas = _load_formula_set(extraction_result.get("stable_deduped_file") or extraction_result.get("stable_file"))
+
+    selected_count = len(selected_rows)
+    success_count = sum(1 for row in selected_rows if str(row.get("formula") or "").strip() in success_formulas)
+    stable_count = sum(1 for row in selected_rows if str(row.get("formula") or "").strip() in stable_formulas)
+    selected_from_bo_top3_count = sum(1 for row in selected_rows if int(row.get("original_bo_rank", 10**9) or 10**9) <= 3)
+    selected_from_bo_13_20_count = sum(
+        1 for row in selected_rows if 13 <= int(row.get("original_bo_rank", 10**9) or 10**9) <= 20
+    )
+    best_kappa = _best_kappa_for_selected_success(extraction_result, selected_formulas)
+    tail_promotions_count = sum(
+        1
+        for row in selected_rows
+        if row.get("selection_gate_status") == "tail_promotion_allowed"
+    )
+    tail_promotions_success_count = sum(
+        1
+        for row in selected_rows
+        if row.get("selection_gate_status") == "tail_promotion_allowed"
+        and str(row.get("formula") or "").strip() in success_formulas
+    )
+    protected_top3_dropped_count = sum(
+        1
+        for row in screen_result.get("selection_trace", [])
+        if row.get("selection_gate_status") == "protected_top3" and not bool(row.get("selected_for_calc"))
+    )
+
+    summary_row = {
+        "iteration": iteration_num,
+        "screening_mode": screen_result.get("screening_mode"),
+        "selected_count": selected_count,
+        "success_count": success_count,
+        "stable_count": stable_count,
+        "success_rate_at_k": (success_count / selected_count) if selected_count else 0.0,
+        "stable_rate_at_k": (stable_count / selected_count) if selected_count else 0.0,
+        "best_kappa_in_selected_success": best_kappa if best_kappa is not None else "",
+        "selected_from_bo_top3_count": selected_from_bo_top3_count,
+        "selected_from_bo_13_20_count": selected_from_bo_13_20_count,
+        "tail_promotions_count": tail_promotions_count,
+        "tail_promotions_success_count": tail_promotions_success_count,
+        "protected_top3_dropped_count": protected_top3_dropped_count,
+    }
+
+    if summary_path.exists():
+        existing = pd.read_csv(summary_path, encoding="utf-8-sig")
+        if "iteration" in existing.columns:
+            existing = existing[existing["iteration"] != iteration_num]
+        updated = pd.concat([existing, pd.DataFrame([summary_row])], ignore_index=True)
+    else:
+        updated = pd.DataFrame([summary_row])
+    updated = updated.sort_values(by=["iteration"], kind="mergesort")
+    updated.to_csv(summary_path, index=False, encoding="utf-8-sig")
+    return str(summary_path)
 
 
 def _save_screening_artifacts(
@@ -412,6 +964,7 @@ def _extract_runtime_overrides(step_input: Any, base_config: dict[str, Any]) -> 
         "n_structures",
         "top_k_bayes",
         "top_k_screen",
+        "screening_mode",
         "websearch_enabled",
         "websearch_top_n",
         "phonon_imag_tol",
@@ -469,6 +1022,7 @@ def _persist_runtime_memory(run_config: dict[str, Any], requested_iterations: in
         "n_structures": run_config.get("n_structures"),
         "top_k_bayes": run_config.get("top_k_bayes"),
         "top_k_screen": run_config.get("top_k_screen"),
+        "screening_mode": run_config.get("screening_mode"),
         "websearch_enabled": run_config.get("websearch_enabled"),
         "websearch_top_n": run_config.get("websearch_top_n"),
         "phonon_imag_tol": run_config.get("phonon_imag_tol"),
@@ -716,9 +1270,17 @@ def _run_single_iteration(
 
     if screen_result.get("success"):
         screened_top10 = screen_result.get("selected_materials", [])
-        screening_mode = "ai_with_websearch"
+        screening_mode = str(screen_result.get("screening_mode") or config.get("screening_mode") or "llm_bo_fusion")
     else:
-        screened_top10 = novel_top20[: config["top_k_screen"]]
+        fallback_result = _build_rank_cutoff_selection(
+            iteration_num=iteration_num,
+            results_root=config["results_root"],
+            candidate_materials=websearch_enriched_candidates,
+            n_select=int(config["top_k_screen"]),
+            screening_mode="heuristic_fallback",
+        )
+        screened_top10 = fallback_result.get("selected_materials", [])
+        screen_result = fallback_result
         screening_mode = "heuristic_fallback"
 
     calculate_result = run_structure_step(
@@ -764,6 +1326,13 @@ def _run_single_iteration(
             "top10": screened_top10,
         }
 
+    screening_summary_path = _update_screening_summary(
+        iteration_num=iteration_num,
+        results_root=config["results_root"],
+        screen_result=screen_result,
+        extraction_result=extract_result,
+    )
+
     materials_summary = _aggregate_materials_from_results(config["results_root"])
     print(f"[summary] summary files: {materials_summary}")
 
@@ -782,6 +1351,7 @@ def _run_single_iteration(
             "top10": screened_top10,
             "extract": extract_result,
             "materials_summary": materials_summary,
+            "screening_summary_path": screening_summary_path,
         }
 
     return {
@@ -810,6 +1380,7 @@ def _run_single_iteration(
         "extract": extract_result,
         "theory": theory_result,
         "materials_summary": materials_summary,
+        "screening_summary_path": screening_summary_path,
     }
 
 
