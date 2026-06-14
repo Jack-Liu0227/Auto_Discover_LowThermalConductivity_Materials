@@ -48,6 +48,9 @@ logs/
 # Generated structures
 src/tools/crystallm/generated_structures/
 !src/tools/crystallm/generated_structures/README.md
+src/tools/kappa_lib/root_dir*/
+_archive_cleanup_*/
+* TO DO list.csv
 
 # Data files
 ./results

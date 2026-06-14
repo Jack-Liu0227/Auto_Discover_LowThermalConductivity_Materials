@@ -124,7 +124,7 @@ def calculate_single_phonon_worker(args: tuple) -> Dict[str, Any]:
                 'has_imaginary': "未知",
                 'error': response.error,
                 'min_frequency': None,
-                'gamma_min_optical': None
+                'gamma_min_optical': None,
                 'gamma_max_acoustic': None
             }
             
@@ -138,7 +138,7 @@ def calculate_single_phonon_worker(args: tuple) -> Dict[str, Any]:
             'has_imaginary': "未知",
             'error': str(e),
             'min_frequency': None,
-            'gamma_min_optical': None
+            'gamma_min_optical': None,
             'gamma_max_acoustic': None
         }
 
@@ -241,7 +241,7 @@ def calculate_phonons_parallel(
                 'has_imaginary': "未知",
                 'error': "missing_result",
                 'min_frequency': None,
-                'gamma_min_optical': None
+                'gamma_min_optical': None,
                 'gamma_max_acoustic': None
             })
     

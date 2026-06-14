@@ -1,163 +1,175 @@
-# ADLM
+# ADLM: Auto Discovery of Low-Thermal-Conductivity Materials
 
-Auto_Discover_LowThermalConductivity_Materials (ADLM) is an automated low-thermal-conductivity materials discovery workflow. It combines Bayesian Optimization, LLM-based screening, structure generation, thermal conductivity prediction, phonon or stability validation, and iterative dataset updates.
+[中文文档](./README.zh-CN.md)
 
-[阅读中文文档](./README.zh-CN.md)
+ADLM is a research workflow for discovering low-thermal-conductivity materials. It combines Bayesian optimization, optional LLM-based candidate screening, crystal structure generation, thermal-conductivity prediction, stability or phonon validation, and iterative dataset updates.
 
-## What This Repository Provides
+The repository is organized as a runnable Python project with two main workflows:
 
-The repository currently exposes two runnable entry points:
+- `main.py`: LLM-assisted discovery workflow powered by Agno-style workflow steps.
+- `main_bo_only.py`: Bayesian-optimization-only workflow for experiments without LLM screening or theory-document updates.
 
-- `main.py`: LLM-assisted workflow built on Agno
-- `main_bo_only.py`: BO-only workflow without LLM screening or theory-document update
+> [!NOTE]
+> Runtime outputs such as `llm/`, `bo/`, `featureEngeering/`, logs, caches, and temporary calculator folders are intentionally ignored. The tracked files are the source code, configuration, seed data, reference document, and local tool integrations required to reproduce new runs.
 
-Both workflows share the same general iteration loop:
+## Table of Contents
 
-1. Train or refresh the surrogate model from accumulated data.
-2. Sample candidate compositions with Bayesian Optimization.
-3. Optionally screen candidates with an LLM.
-4. Generate structures and run downstream relaxation, phonon, and thermal-conductivity calculations.
-5. Extract successful or stable materials.
-6. Update the dataset for the next iteration.
-7. In LLM mode, update the theory document version after each round.
+- [Features](#features)
+- [Repository Layout](#repository-layout)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Environment Configuration](#environment-configuration)
+- [Quick Start](#quick-start)
+- [LLM-Assisted Workflow](#llm-assisted-workflow)
+- [BO-Only Workflow](#bo-only-workflow)
+- [Configuration](#configuration)
+- [Data and Output Layout](#data-and-output-layout)
+- [Local Tool Integrations](#local-tool-integrations)
+- [Development Notes](#development-notes)
+- [Troubleshooting](#troubleshooting)
+
+## Features
+
+- Iterative materials discovery loop for low lattice thermal conductivity.
+- Gaussian-process surrogate model training and refresh.
+- Expected-improvement Bayesian optimization over constrained composition spaces.
+- Optional LLM screening of candidate materials.
+- Crystal structure generation through the bundled CrystaLLM integration.
+- Thermal-conductivity estimation through the bundled kappa/CGCNN integration.
+- MatterSim-based relaxation and phonon-oriented validation hooks.
+- Materials Project, AFLOW, and OQMD helper modules for external materials data.
+- Resume support through per-run progress files.
+- Separate runtime roots for LLM-assisted and BO-only experiments.
 
 ## Repository Layout
 
 ```text
 aslk/
-|- main.py
-|- main_bo_only.py
-|- README.md
-|- README.zh-CN.md
-|- .env.example
-|- requirements.txt
-|- uv.lock
+|- main.py                         # LLM-assisted workflow entry point
+|- main_bo_only.py                 # BO-only workflow entry point
+|- requirements.txt                # Python dependency list
+|- uv.lock                         # uv lockfile
+|- .env.example                    # environment variable template
 |- config/
-|  |- config.yaml
-|  |- agentos_params.csv
-|- src/
-|  |- agents/
-|  |- database/
-|  |- generators/
-|  |- models/
-|  |  |- README.md
-|  |- tools/
-|  |- utils/
-|  |- workflow/
+|  |- config.yaml                  # algorithm and tool configuration
+|  |- agentos_params.csv           # editable runtime parameter sheet
 |- data/
-|  |- processed_data.csv
+|  |- processed_data.csv           # seed dataset
 |- doc/
 |  |- Theoretical_principle_document.md
+|- src/
+|  |- agents/                      # LLM clients, screening, document updates
+|  |- analysis/                    # offline feature analysis utilities
+|  |- database/                    # MP/AFLOW/OQMD access helpers
+|  |- generators/                  # BO samplers and acquisition functions
+|  |- models/                      # GPR training code
+|  |- schemas/                     # typed workflow inputs
+|  |- tools/                       # CrystaLLM, kappa, MatterSim, structure tools
+|  |- utils/                       # configuration, paths, progress, reproducibility
+|  |- workflow/                    # step-level workflow implementation
+|- README.md
+|- README.zh-CN.md
 ```
-
-> [!NOTE]
-> This README is calibrated to the files currently tracked by git. Runtime-generated folders such as `llm/` and `bo/` are outputs, not tracked source files.
 
 ## Requirements
 
-- Python `3.10+`
-- `uv` recommended for dependency management
-- CUDA-capable GPU recommended for full structure and property calculations
+- Python 3.10 or newer.
+- Windows PowerShell, Linux shell, or a comparable terminal.
+- CUDA-capable GPU recommended for full structure generation and MatterSim/torch workloads.
+- API keys for the LLM provider and Materials Project when using those features.
 
-Key dependencies declared in `requirements.txt` and locked in `uv.lock` include:
+Core dependency groups:
 
-- `agno`
-- `google-adk`
-- `pandas`, `numpy`, `matplotlib`, `seaborn`
-- `ase`, `pymatgen`
-- `scikit-learn`, `xgboost`, `joblib`
-- `torch`, `torchvision`, `torchaudio`
-- `mattersim`
+- Workflow and LLM runtime: `agno`, `google-adk`, `litellm`
+- Data and ML: `pandas`, `numpy`, `scikit-learn`, `xgboost`, `joblib`
+- Materials science: `ase`, `pymatgen`, `phonopy`, `spglib`
+- Deep learning and calculators: `torch`, `torchvision`, `torchaudio`, `mattersim`
+- Development and analysis: `pytest`, `black`, `isort`, `jupyter`, `shap`, `plotly`
 
 > [!IMPORTANT]
-> `requirements.txt` includes CUDA 12.4 PyTorch packages. If your machine uses a different CUDA stack, install a matching PyTorch build manually.
+> `requirements.txt` declares PyTorch package names, but GPU builds are environment-specific. Install the PyTorch wheel that matches your CUDA or CPU environment before running heavy workflows.
 
 ## Installation
 
-### `pip`
+Create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
-If you use `uv`, the lockfile tracked in this repository is `uv.lock`.
-
-Manual CUDA PyTorch example:
-
-```bash
-pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
-```
-
-## Environment Variables
-
-Create `.env` from the template:
-
-```bash
-copy .env.example .env
-```
-
-The current template defines:
-
-- `WORKFLOW_MODEL`
-- `WORKFLOW_API_KEY`
-- `WORKFLOW_BASE_URL`
-- `THEORY_UPDATE_MODEL`
-- `THEORY_UPDATE_API_KEY`
-- `THEORY_UPDATE_BASE_URL`
-- `TEMPERATURE`
-- `MP_API_KEY`
-- `AFLOW_BASE_URL` (optional)
-
-Minimal example:
-
-```dotenv
-WORKFLOW_MODEL=deepseek-chat
-WORKFLOW_API_KEY=your_api_key
-WORKFLOW_BASE_URL=https://api.deepseek.com/v1
-
-THEORY_UPDATE_MODEL=deepseek-chat
-THEORY_UPDATE_API_KEY=your_api_key
-THEORY_UPDATE_BASE_URL=https://api.deepseek.com/v1
-
-TEMPERATURE=0.3
-MP_API_KEY=your_materials_project_key
-```
-
-Notes:
-
-- `WORKFLOW_*` is used for candidate screening in `main.py`.
-- `THEORY_UPDATE_*` is used for theory-document evolution in `main.py`.
-- `MP_API_KEY` is required for Materials Project queries.
-
-## Quick Start
-
-Install dependencies:
+If you use `uv`, install from the lockfile:
 
 ```bash
 uv sync
 ```
 
-Create `.env`:
+CUDA 12.4 PyTorch example:
+
+```bash
+pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
+```
+
+## Environment Configuration
+
+Create a local `.env` file:
 
 ```bash
 copy .env.example .env
 ```
 
-Run the LLM workflow:
+Fill in the required values:
+
+```dotenv
+WORKFLOW_MODEL=deepseek-chat
+WORKFLOW_API_KEY=your_workflow_llm_key
+WORKFLOW_BASE_URL=https://api.deepseek.com/v1
+
+THEORY_UPDATE_MODEL=your_theory_update_model
+THEORY_UPDATE_API_KEY=your_theory_update_key
+THEORY_UPDATE_BASE_URL=https://your-provider.example/v1
+
+TEMPERATURE=0.3
+MP_API_KEY=your_materials_project_key
+```
+
+Variable usage:
+
+- `WORKFLOW_*`: LLM candidate screening in `main.py`.
+- `THEORY_UPDATE_*`: theory-document update step in `main.py`.
+- `TEMPERATURE`: default LLM sampling temperature.
+- `MP_API_KEY`: Materials Project queries.
+- `AFLOW_BASE_URL`: optional AFLOW endpoint override.
+
+Never commit `.env`; it is ignored by `.gitignore`.
+
+## Quick Start
+
+Run the LLM-assisted workflow:
 
 ```bash
-python main.py
+python main.py --max-iterations 1
 ```
 
 Run the BO-only workflow:
 
 ```bash
-python main_bo_only.py
+python main_bo_only.py --max-iterations 1
 ```
 
-## LLM Workflow
+Run a lightweight syntax check:
+
+```bash
+python -m compileall main.py main_bo_only.py src
+```
+
+## LLM-Assisted Workflow
 
 Entry point:
 
@@ -165,137 +177,39 @@ Entry point:
 python main.py
 ```
 
-Default roots used by the code:
+Default seed inputs:
 
-- `llm/results`
-- `llm/models/GPR`
+- Dataset: `data/processed_data.csv`
+- Theory document: `doc/Theoretical_principle_document.md`
+
+Default runtime roots:
+
 - `llm/data`
+- `llm/models/GPR`
+- `llm/results`
 - `llm/doc`
 
-Default initial inputs:
-
-- dataset: `data/processed_data.csv`
-- theory document: `doc/Theoretical_principle_document.md`
-
-### Common commands
-
-Run a fixed number of iterations:
+Common commands:
 
 ```bash
 python main.py --max-iterations 3
-```
-
-Continue from existing progress:
-
-```bash
 python main.py --add-iterations 2
-```
-
-Override BO or screening parameters:
-
-```bash
 python main.py --samples 150 --top-k-bayes 30 --top-k-screen 10 --n-structures 5
-```
-
-Set GPU count:
-
-```bash
 python main.py --num-gpus 2
-```
-
-Disable web search:
-
-```bash
 python main.py --no-websearch-enabled
-```
-
-Allow partial structure completion:
-
-```bash
+python main.py --skip-doc-update
 python main.py --allow-partial-structure
-```
-
-Reset recorded progress:
-
-```bash
 python main.py --reset
-```
-
-Override initial dataset and theory document:
-
-```bash
 python main.py --init-data data/processed_data.csv --init-doc doc/Theoretical_principle_document.md
 ```
 
-### Offline feature engineering
-
-Use the offline bootstrap script to generate `character`-style thermal conductivity features, run correlation pruning, SHAP ranking, and automatically choose how many features to keep from the cross-validation curve.
-
-Default input and output:
-
-- input dataset: `data/processed_data.csv`
-- output directory: `featureEngeering/`
-
-Recommended command:
-
-```bash
-python scripts/bootstrap_character_features.py --model-type extra_trees --selection-metric rmse
-```
-
-Common variants:
-
-```bash
-python scripts/bootstrap_character_features.py --model-type extra_trees --selection-metric r2
-python scripts/bootstrap_character_features.py --model-type extra_trees --selection-metric mae
-python scripts/bootstrap_character_features.py --model-type extra_trees --selection-metric rmse --top-n 6
-```
-
-Selection behavior:
-
-- SHAP determines the feature ranking order.
-- Cross-validation curve determines how many top-ranked features to keep.
-- `--selection-metric rmse` selects the feature count with minimum RMSE.
-- `--selection-metric r2` selects the feature count with maximum R2.
-- `--selection-metric mae` selects the feature count with minimum MAE.
-- `--top-n` is now only a manual override. If omitted, the feature count is selected automatically.
-
-Main outputs written to `featureEngeering/`:
-
-- `character_features.csv`: candidate feature table
-- `feature_target_correlation.csv`: feature-target correlation ranking
-- `feature_correlation_matrix.csv`: feature-feature correlation matrix
-- `feature_correlation_heatmap.png`: correlation heatmap
-- `correlation_pruned_features.json`: dropped and retained correlated features
-- `shap_importance.csv`: SHAP global importance ranking
-- `shap_summary.png`: SHAP summary plot
-- `feature_count_metrics.csv`: CV metrics vs. number of features
-- `feature_count_metrics.png`: CV metric curve used for automatic feature-count selection
-- `selected_features.json`: final selected feature list
-- `feature_selection_manifest.json`: run configuration and final selection summary
-
-### AgentOS runtime
+AgentOS runtime:
 
 ```bash
 python main.py --runtime agentos --agentos-host 127.0.0.1 --agentos-port 7777
 ```
 
-`main.py` also reads and persists values through `config/agentos_params.csv`. In practice this file acts as:
-
-- editable defaults for the runtime UI
-- runtime override sheet
-- lightweight parameter memory between runs
-
-Common keys include:
-
-- `websearch_enabled`
-- `websearch_top_n`
-- `top_k_bayes`
-- `top_k_screen`
-- `samples`
-- `n_structures`
-- `relax_timeout_sec`
-- `skip_doc_update`
-- `agentos_default_iterations`
+`config/agentos_params.csv` is used as an editable parameter sheet and lightweight runtime memory. It includes values such as `websearch_enabled`, `websearch_top_n`, `samples`, `top_k_bayes`, `top_k_screen`, `n_structures`, `relax_timeout_sec`, and `skip_doc_update`.
 
 ## BO-Only Workflow
 
@@ -305,85 +219,57 @@ Entry point:
 python main_bo_only.py
 ```
 
-Current output roots in code:
+Default runtime roots:
 
-- `bo/results`
-- `bo/models/GPR`
 - `bo/data`
+- `bo/models/GPR`
+- `bo/results`
 
-The BO-only workflow performs:
-
-1. model training
-2. BO candidate generation
-3. top-`top_k_screen` candidate selection for downstream calculation
-4. structure generation and calculation
-5. result merging and success extraction
-6. dataset update
-
-### Common commands
-
-Run 10 iterations:
+Common commands:
 
 ```bash
 python main_bo_only.py --max-iterations 10
-```
-
-Start from a specific iteration:
-
-```bash
 python main_bo_only.py --start-iteration 3 --max-iterations 10
-```
-
-Override sampling or structure parameters:
-
-```bash
 python main_bo_only.py --samples 150 --top-k-bayes 30 --top-k-screen 10 --n-structures 5
-```
-
-Use a custom initial dataset:
-
-```bash
 python main_bo_only.py --init-data data/processed_data.csv
-```
-
-Allow partial structure completion:
-
-```bash
 python main_bo_only.py --allow-partial-structure
-```
-
-Reset and rerun:
-
-```bash
 python main_bo_only.py --reset
 ```
 
-## Configuration Files
+The BO-only pipeline trains the surrogate model, samples candidate compositions, selects top candidates, generates structures, runs downstream calculations, merges results, extracts successful materials, and updates the dataset for the next iteration.
 
-### `config/config.yaml`
+## Configuration
 
-Main algorithm and tool configuration, including:
+`config/config.yaml` contains the main algorithm and tool settings:
 
-- loop control
-- BO acquisition and sampling settings
-- model defaults
-- generator constraints
-- external tool parameters
-- thresholds and logging/output examples
+- Loop metadata and default iteration hints.
+- Bayesian optimization acquisition and sampling settings.
+- Allowed element set and hard composition constraints.
+- Thermal-conductivity and stability thresholds.
+- CrystaLLM, kappa, and MatterSim tool settings.
+- Runtime layout documentation for `llm/` and `bo/` outputs.
 
-Fields that are especially relevant to current runs:
+Key fields:
 
-- `loop.max_iterations`
 - `bayesian_optimization.acquisition.xi`
 - `bayesian_optimization.sampling.n_samples`
+- `bayesian_optimization.sampling.allowed_elements`
 - `bayesian_optimization.sampling.hard_constraints`
+- `thresholds.thermal_conductivity`
 - `tools.crystallm.model_path`
 - `tools.ai4kappa.k_threshold`
 - `tools.mattersim.imaginary_freq_threshold`
 
-## Output Layout
+## Data and Output Layout
 
-### LLM mode
+Seed data and documents:
+
+```text
+data/processed_data.csv
+doc/Theoretical_principle_document.md
+```
+
+LLM workflow outputs:
 
 ```text
 llm/
@@ -391,7 +277,7 @@ llm/
 |  |- iteration_0/data.csv
 |  |- iteration_1/data.csv
 |- models/
-|  |- GPR/iteration_1/...
+|  |- GPR/iteration_1/
 |- results/
 |  |- progress.json
 |  |- run_YYYYMMDD_HHMMSS.log
@@ -404,14 +290,14 @@ llm/
 |  |- v0.0.1/Theoretical_principle_document.md
 ```
 
-### BO-only mode
+BO-only outputs:
 
 ```text
 bo/
 |- data/
 |  |- iteration_0/data.csv
 |- models/
-|  |- GPR/iteration_1/...
+|  |- GPR/iteration_1/
 |- results/
 |  |- progress.json
 |  |- iteration_1/
@@ -419,58 +305,93 @@ bo/
 |     |- success_examples/
 ```
 
-### `progress.json`
+Progress tracking:
 
-Both workflows use `progress.json` to skip completed work when resuming. Depending on mode, tracked steps may include:
+- `progress.json` allows a run to skip completed steps during resume.
+- Typical step keys include `train_model`, `bayesian_optimization`, `ai_evaluation`, `structure_calculation`, `merge_results`, `success_extraction`, `document_update`, and `data_update`.
 
-- `train_model`
-- `bayesian_optimization`
-- `ai_evaluation`
-- `structure_calculation`
-- `merge_results`
-- `success_extraction`
-- `document_update`
-- `data_update`
+## Local Tool Integrations
+
+### CrystaLLM
+
+The local CrystaLLM integration is under `src/tools/crystallm/`. It provides structure-generation utilities, model configuration files, tokenizer/model code, and helper scripts.
+
+The configured model path is:
+
+```text
+src/tools/crystallm/pre-trained-model/crystallm_v1_small
+```
+
+Large pretrained model files are intentionally not tracked. Place the required model files in that directory before running CrystaLLM-backed generation.
+
+### kappa / CGCNN
+
+The kappa integration is under `src/tools/kappa_lib/`. It includes CGCNN code and tracked pretrained thermal-property models under `src/tools/kappa_lib/model/`.
+
+Temporary prediction folders matching `src/tools/kappa_lib/root_dir*/` are ignored and should not be committed.
+
+### MatterSim
+
+MatterSim-related wrapper code lives in `src/tools/mattersim_wrapper.py`. Full MatterSim runs may require a GPU-enabled environment and compatible PyTorch installation.
+
+## Development Notes
+
+Useful checks:
+
+```bash
+python -m compileall main.py main_bo_only.py src
+python -m pytest
+```
+
+The repository may include optional test and development dependencies in `requirements.txt`. Some tests or workflows can require external credentials, model weights, GPU support, or generated runtime data.
+
+Ignored by design:
+
+- `.env`
+- `.venv/`
+- `__pycache__/`, `.pytest_cache/`, `htmlcov/`
+- `llm/`, `llm_*/`
+- `bo/`, `bo_*/`
+- `Paper/`, `archive/`, `figures/`
+- `featureEngeering/`
+- CrystaLLM generated structures
+- kappa temporary prediction directories
 
 ## Troubleshooting
 
-### No usable LLM configured
+### LLM calls fail
 
-Check:
+Check that `.env` exists and that `WORKFLOW_API_KEY`, `WORKFLOW_BASE_URL`, and `WORKFLOW_MODEL` match your provider.
 
-- `.env` exists
-- `WORKFLOW_API_KEY` is set
-- `THEORY_UPDATE_API_KEY` is set
-- the configured model names are valid for the selected endpoints
+### Theory-document updates fail
+
+Check `THEORY_UPDATE_API_KEY`, `THEORY_UPDATE_BASE_URL`, and `THEORY_UPDATE_MODEL`. You can bypass the document update step with:
+
+```bash
+python main.py --skip-doc-update
+```
 
 ### Materials Project queries fail
 
-Check that `MP_API_KEY` is set in `.env`.
+Check that `MP_API_KEY` is set and valid.
 
-### CUDA or PyTorch mismatch
+### CUDA or PyTorch errors
 
-Reinstall PyTorch with a build that matches your local CUDA or CPU environment.
+Install a PyTorch build that matches your CUDA driver, or use a CPU-compatible setup for lightweight code paths.
 
-### Windows encoding issues
+### CrystaLLM model not found
 
-If terminal output is garbled:
+Place the pretrained CrystaLLM model files under:
+
+```text
+src/tools/crystallm/pre-trained-model/crystallm_v1_small
+```
+
+### Windows terminal encoding is garbled
+
+Use UTF-8 mode:
 
 ```bash
 set PYTHONIOENCODING=utf-8
 python main.py
 ```
-
-## Reference Files
-
-If you want to extend the documentation further, the most relevant files are:
-
-- `main.py`
-- `main_bo_only.py`
-- `src/workflow/agno_pipeline.py`
-- `src/workflow/agno_steps.py`
-- `src/agents/llm_models.py`
-- `config/config.yaml`
-- `src/utils/path_config.py`
-- `src/utils/progress_tracker.py`
-- `data/processed_data.csv`
-- `doc/Theoretical_principle_document.md`
