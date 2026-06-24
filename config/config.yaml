@@ -1,0 +1,118 @@
+# ASLK configuration
+# Updated: 2026-03-11
+#
+# Scope:
+# - This file is consumed by src/utils/config_loader.py.
+# - Main runtime defaults live in main.py, main_bo_only.py, and config/agentos_params.csv.
+# - New runs resolve output roots dynamically via PathConfig into llm/* or bo/*.
+
+metadata:
+  version: 2
+  maintained_on: "2026-03-11"
+  config_loader_scope:
+    - bayesian_optimization
+    - thresholds
+    - tools
+  runtime_defaults:
+    llm_entrypoint: main.py
+    bo_entrypoint: main_bo_only.py
+    param_sheet: config/agentos_params.csv
+
+loop:
+  max_iterations: 20
+  retrain_interval: 2
+  min_success_rate: 0.05
+  convergence_patience: 5
+  note: Informational only. Runtime iteration count is controlled by CLI args or config/agentos_params.csv.
+
+bayesian_optimization:
+  acquisition:
+    function: EI
+    xi: 0.01
+
+  sampling:
+    method: mcmc
+    n_samples: 100
+    max_atoms: 20
+    allowed_elements:
+      - Ti
+      - V
+      - Cu
+      - Ag
+      - In
+      - Ge
+      - Sn
+      - Pb
+      - As
+      - Sb
+      - Bi
+      - S
+      - Se
+      - Te
+    hard_constraints:
+      schema:
+        type: A-B-Ch
+        groups:
+          A: [Ag, Cu, In, Sn, Pb]
+          B: [As, Sb, Ge, Bi, Ti, V]
+          Ch: [S, Se, Te]
+      stoichiometry:
+        A: {min: 2, max: 10}
+        B: {min: 1, max: 10}
+        Ch: {min: 1, max: 10}
+    mcmc:
+      w_ei: 1.0
+      w_k: 1.0
+      w_sigma: 0.5
+      temperature: 1.0
+      burn_in: 200
+      thin: 5
+
+  model:
+    initial_model: bo_first_iteration/models/GPR/iteration_0/gpr_thermal_conductivity.joblib
+    retrain_from_round: 2
+    note: Active runs resolve per-iteration models from llm/models/GPR or bo/models/GPR via PathConfig.
+
+thresholds:
+  thermal_conductivity: &thermal_conductivity_threshold 1.0
+  dynamic_min_frequency: &dynamic_min_frequency_threshold -0.1
+  stability: stable
+
+tools:
+  crystallm:
+    model_path: src/tools/crystallm/pre-trained-model/crystallm_v1_small
+    timeout: 300
+    num_samples: 3
+    top_k: 10
+    max_new_tokens: 2000
+
+  ai4kappa:
+    temperature: 300
+    timeout: 300
+    k_threshold: *thermal_conductivity_threshold
+
+  mattersim:
+    timeout: 600
+    phonon_supercell: [2, 2, 2]
+    displacement: 0.01
+    imaginary_freq_threshold: *dynamic_min_frequency_threshold
+
+runtime_layout:
+  theory_seed_document: doc/Theoretical_principle_document.md
+  initial_dataset: data/processed_data.csv
+  llm:
+    data_root: llm/data
+    models_root: llm/models/GPR
+    results_root: llm/results
+    doc_root: llm/doc
+    workflow_db: llm/results/workflow.db
+    agentos_db: llm/results/agentos.db
+    log_pattern: llm/results/run_<timestamp>.log
+  bo:
+    data_root: bo/data
+    models_root: bo/models/GPR
+    results_root: bo/results
+    log_pattern: bo/results/run_<timestamp>.log
+
+legacy:
+  note: Historical experiment folders remain in the repository, but new runs use PathConfig roots under llm/ and bo/.
